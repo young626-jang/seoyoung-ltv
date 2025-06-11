@@ -269,6 +269,20 @@ with col2:
         delete_customer_from_notion(selected_customer)
         st.rerun()  # ✅ 삭제 후 전체 앱 새로고침
 
+    # 바로 아래에 임시 PDF 삭제 버튼 추가
+    if "uploaded_pdf_path" in st.session_state:
+        if st.button("🧹 임시 PDF 삭제"):
+            try:
+                pdf_path = st.session_state["uploaded_pdf_path"]
+                if os.path.exists(pdf_path):
+                    os.remove(pdf_path)
+                    del st.session_state["uploaded_pdf_path"]
+                    st.success("🧼 임시 PDF 파일이 삭제되었습니다.")
+                else:
+                    st.warning("❗ PDF 파일이 이미 삭제되었거나 존재하지 않습니다.")
+            except Exception as e:
+                st.error(f"삭제 중 오류 발생: {e}")
+
 # ------------------------------
 # 🔹 기본 정보 입력
 # ------------------------------

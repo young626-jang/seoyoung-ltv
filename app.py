@@ -170,8 +170,8 @@ for key in ["extracted_address", "extracted_area", "raw_price", "extracted_floor
     if key not in st.session_state:
         st.session_state[key] = ""
 
-# co_owners는 업로드되기 전이거나 불러오기도 아닌 경우만 빈 리스트로 초기화
-if "co_owners" not in st.session_state and "uploaded_pdf_path" not in st.session_state and "load_customer_select" not in st.session_state:
+# co_owners는 앱 첫 로딩 시에만 빈 리스트로 초기화
+if "co_owners" not in st.session_state:
     st.session_state["co_owners"] = []
 
 if uploaded_file:

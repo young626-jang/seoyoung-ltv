@@ -174,8 +174,11 @@ for key in ["extracted_address", "extracted_area", "raw_price", "extracted_floor
 if "co_owners" not in st.session_state:
     st.session_state["co_owners"] = []
 
+# 🔹 파일 업로더는 반드시 먼저
+uploaded_file = st.file_uploader("📎 PDF 파일 업로드", type="pdf")
+
+# 🔹 파일이 업로드된 경우에만 처리
 if uploaded_file:
-    # 1. PDF 텍스트 추출 및 메타정보 세션 저장
     text, external_links, address, area, floor, co_owners = process_pdf(uploaded_file)
     st.session_state["extracted_address"] = address
     st.session_state["extracted_area"] = area

@@ -296,7 +296,7 @@ with info_col2:
 
     default_name_text = f"{co_owners[0][0]}  {co_owners[0][1]}" if co_owners else ""
 
-    if "customer_name" not in st.session_state:
+    if "customer_name" not in st.session_state or not st.session_state["customer_name"]:
         st.session_state["customer_name"] = default_name_text
 
     customer_name = st.text_input("고객명", placeholder=default_name_text, key="customer_name")

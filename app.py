@@ -282,14 +282,17 @@ with info_col1:
 
 with info_col2:
     co_owners_raw = st.session_state.get("co_owners", [])
-    if isinstance(co_owners_raw, str):
-        try:
-            temp = ast.literal_eval(co_owners_raw)
-            co_owners = [tuple(s.split(",")) for s in temp if isinstance(s, str) and "," in s]
-        except Exception:
-            co_owners = []
+
+    if isinstance(co_owners_raw, list):
+        if all(isinstance(x, tuple) and len(x) == 2 for x in co_owners_raw):
+            co_owners = co_owners_raw
+        else:
+            try:
+                co_owners = [tuple(s.split(",")) for s in co_owners_raw if isinstance(s, str) and "," in s]
+            except:
+                co_owners = []
     else:
-        co_owners = [tuple(s.split(",")) for s in co_owners_raw if isinstance(s, str) and "," in s]
+        co_owners = []
 
     default_name_text = f"{co_owners[0][0]}  {co_owners[0][1]}" if co_owners else ""
 
@@ -297,6 +300,7 @@ with info_col2:
         st.session_state["customer_name"] = default_name_text
 
     customer_name = st.text_input("고객명", placeholder=default_name_text, key="customer_name")
+
 
 col1, col2 = st.columns(2)
 with col1:

@@ -166,11 +166,13 @@ def calculate_ltv(total_value, deduction, principal_sum, maintain_maxamt_sum, lt
 # 🔹 세션 초기화
 # ------------------------------
 
-for key in ["extracted_address", "extracted_area", "raw_price", "co_owners", "extracted_floor"]:
+for key in ["extracted_address", "extracted_area", "raw_price", "extracted_floor"]:
     if key not in st.session_state:
-        st.session_state[key] = "" if key != "co_owners" else []
+        st.session_state[key] = ""
 
-uploaded_file = st.file_uploader("📎 PDF 파일 업로드", type="pdf")
+# co_owners는 업로드되기 전이거나 불러오기도 아닌 경우만 빈 리스트로 초기화
+if "co_owners" not in st.session_state and "uploaded_pdf_path" not in st.session_state and "load_customer_select" not in st.session_state:
+    st.session_state["co_owners"] = []
 
 if uploaded_file:
     # 1. PDF 텍스트 추출 및 메타정보 세션 저장

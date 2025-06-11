@@ -1,1 +1,1 @@
-# seoyoung-ltv
+# LTV_Calculator

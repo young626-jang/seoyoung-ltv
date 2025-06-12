@@ -1,25 +1,21 @@
 import os
 import re
-import sys
-import base64
 import tempfile
-import subprocess
-import webbrowser
 import platform
 import fitz  # PyMuPDF
 import pandas as pd
 import streamlit as st
-import ast
-from history_manager import get_customer_options
+from datetime import datetime
 
 from ltv_map import region_map
-from datetime import datetime
 from history_manager import (
+    get_customer_options,
     load_customer_input,
     save_user_input,
     delete_customer_from_notion,
-    get_customer_options,
+    fetch_all_notion_customers,
 )
+
 # ─────────────────────────────
 # 🏠 상단 타이틀 + 고객 이력 불러오기
 # ─────────────────────────────
@@ -143,7 +139,9 @@ def parse_korean_number(text: str) -> int:
 def format_kb_price():
     raw = st.session_state.get("raw_price_input", "")
     clean = parse_korean_number(raw)
-    st.session_state["raw_price"] = "{:,}".format(clean) if clean else ""
+    formatted = "{:,}".format(clean) if clean else ""
+    st.session_state["raw_price"] = formatted
+    st.session_state["raw_price_input"] = formatted  # ← 필드 표시값도 같이 갱신
 
 def format_area():
     raw = st.session_state.get("area_input", "")
@@ -232,44 +230,26 @@ if uploaded_file:
         for uri in external_links:
             st.code(uri)
 
-# ------------------------------
-# 🔹 고객 선택 + 불러오기 + 삭제 UI
-# ------------------------------
+# ─────────────────────────────
+# 고객 선택/불러오기/삭제 UI (일관성)
+# ─────────────────────────────
 
-from history_manager import (
-    get_customer_options,
-    load_customer_input,
-    delete_customer_from_notion,
-    fetch_all_notion_customers
-)
-
-# Notion 데이터 최초 1회 로드
 if "notion_customers" not in st.session_state:
     fetch_all_notion_customers()
 
-# UI 구성
 col1, col2 = st.columns([2, 1])
-
 with col1:
     customer_list = get_customer_options()
     selected_customer = st.selectbox("고객 선택 (불러오기 또는 삭제)", [""] + customer_list, key="load_customer_select")
-
     if selected_customer:
         load_customer_input(selected_customer)
-
-        # 🔒 안전한 세션 키 초기화
-        for key in ["extracted_address", "extracted_area", "raw_price", "co_owners", "extracted_floor"]:
-            if key not in st.session_state:
-                st.session_state[key] = "" if key != "co_owners" else []
-
+        # 결과 텍스트만 복원
         st.success(f"✅ '{selected_customer}'님의 데이터가 불러와졌습니다.")
 
 with col2:
     if selected_customer and st.button("🗑️ 선택한 고객 삭제하기"):
         delete_customer_from_notion(selected_customer)
-        st.rerun()  # ✅ 삭제 후 전체 앱 새로고침
-
-    # 바로 아래에 임시 PDF 삭제 버튼 추가
+        st.rerun()
     if "uploaded_pdf_path" in st.session_state:
         if st.button("🧹 임시 PDF 삭제"):
             try:
@@ -283,72 +263,48 @@ with col2:
             except Exception as e:
                 st.error(f"삭제 중 오류 발생: {e}")
 
-# ------------------------------
-# 🔹 기본 정보 입력
-# ------------------------------
+
+
 
 st.markdown("📄 기본 정보 입력")
 
 info_col1, info_col2 = st.columns(2)
-
 with info_col1:
-    address_input = st.text_input("주소", st.session_state["extracted_address"], key="address_input")
-
+    st.text_input("주소", st.session_state.get("extracted_address", ""), key="address_input")
 with info_col2:
-    co_owners_raw = st.session_state.get("co_owners", [])
-
-    if isinstance(co_owners_raw, list):
-        if all(isinstance(x, tuple) and len(x) == 2 for x in co_owners_raw):
-            co_owners = co_owners_raw
-        else:
-            try:
-                co_owners = [tuple(s.split(",")) for s in co_owners_raw if isinstance(s, str) and "," in s]
-            except:
-                co_owners = []
-    else:
-        co_owners = []
-
-    default_name_text = f"{co_owners[0][0]}  {co_owners[0][1]}" if co_owners else ""
-
-    if "customer_name" not in st.session_state or not st.session_state["customer_name"]:
-        st.session_state["customer_name"] = default_name_text
-
-    customer_name = st.text_input("고객명", placeholder=default_name_text, key="customer_name")
+    st.text_input("고객명", key="customer_name")
 
 
+# 🔹 방공제 지역 및 금액 입력
 col1, col2 = st.columns(2)
 with col1:
-    region = st.selectbox("방공제 지역 선택", [""] + list(region_map.keys()))
+    region = st.selectbox("방공제 지역", [""] + list(region_map.keys()), key="region")
     default_d = region_map.get(region, 0)
 
 with col2:
-    manual_d = st.text_input("방공제 금액 (만)", f"{default_d:,}")
+    md = st.session_state.get("manual_d")
+    if not isinstance(md, str) or md in ("", "0"):
+        st.session_state["manual_d"] = f"{default_d:,}"
+    st.text_input("방공제 금액 (만)", value=st.session_state["manual_d"], key="manual_d")
 
+
+# 🔹 KB 시세 및 전용면적
 col3, col4 = st.columns(2)
-
 with col3:
     if "raw_price_input" not in st.session_state:
-        # 불러온 값이 있으면 그것으로 초기화, 없으면 빈 문자열
         st.session_state["raw_price_input"] = st.session_state.get("raw_price_input_default", "")
-
     st.text_input("KB 시세 (만원)", key="raw_price_input", on_change=format_kb_price)
-
-    
 with col4:
-    area_input = st.text_input("전용면적 (㎡)", value=st.session_state.get("extracted_area", ""), key="area_input")
+    st.text_input("전용면적 (㎡)", value=st.session_state.get("extracted_area", ""), key="area_input")
 
-# 🔒 deduction 계산
-deduction = default_d
+
 try:
-    cleaned = re.sub(r"[^\d]", "", manual_d)
-    if cleaned:
-        deduction = int(cleaned)
-except Exception as e:
-    st.warning(f"방공제 금액 오류: 기본값({default_d})이 사용됩니다.")
+    cleaned = re.sub(r"[^\d]", "", st.session_state.get("manual_d", ""))
+    deduction = int(cleaned) if cleaned else default_d
+except:
+    deduction = default_d
 
-# ------------------------------
-# 🔹 층수 판단
-# ------------------------------
+address_input = st.session_state.get("address_input", "")
 floor_match = re.findall(r"제(\d+)층", address_input)
 floor_num = int(floor_match[-1]) if floor_match else None
 if floor_num is not None:
@@ -357,19 +313,15 @@ if floor_num is not None:
     else:
         st.markdown('<span style="color:#007BFF; font-weight:bold; font-size:18px">📈 일반가</span>', unsafe_allow_html=True)
 
-# ------------------------------
-# 🔹 시세 버튼 및 PDF 처리
-# ------------------------------
-col1, col2, col3 = st.columns(3)
 
+# 시세/외부사이트 버튼
+col1, col2, col3 = st.columns(3)
 with col1:
     if st.button("KB 시세 조회"):
         st.components.v1.html("<script>window.open('https://kbland.kr/map','_blank')</script>", height=0)
-
 with col2:
     if st.button("하우스머치 시세조회"):
         st.components.v1.html("<script>window.open('https://www.howsmuch.com','_blank')</script>", height=0)
-
 with col3:
     if "uploaded_pdf_path" in st.session_state:
         with open(st.session_state["uploaded_pdf_path"], "rb") as f:
@@ -382,127 +334,132 @@ with col3:
     else:
         st.info("📄 먼저 PDF 파일을 업로드해 주세요.")
 
-# ------------------------------
+
 # 🔹 LTV 입력
-# ------------------------------
 st.markdown("---")
 st.subheader("📌 LTV 비율 입력")
-
 ltv_col1, ltv_col2 = st.columns(2)
-
 with ltv_col1:
-    raw_ltv1 = st.text_input("LTV 비율 ① (%)", "80")
-
+    st.text_input("LTV 비율 ① (%)", "80", key="ltv1")
 with ltv_col2:
-    raw_ltv2 = st.text_input("LTV 비율 ② (%)", "")
+    st.text_input("LTV 비율 ② (%)", "", key="ltv2")
 
-# 선택값 정리
+# 🔹 LTV 비율 리스트 생성 (자동 계산용)
 ltv_selected = []
-for val in [raw_ltv1, raw_ltv2]:
+for key in ("ltv1", "ltv2"):
+    val = st.session_state.get(key, "")
     try:
         v = int(val)
         if 1 <= v <= 100:
             ltv_selected.append(v)
     except:
-        continue
-ltv_selected = list(dict.fromkeys(ltv_selected))  # 중복 제거
+        pass
+ltv_selected = list(dict.fromkeys(ltv_selected))
+st.session_state["ltv_selected"] = ltv_selected
 
-# ------------------------------
-# 🔹 대출 항목 입력
-# ------------------------------
+# ─────────────────────────────
+# LTV 입력 (UI)
+# ─────────────────────────────
 
-rows = st.number_input("대출 항목", min_value=0, max_value=10, value=3)
+rows = st.number_input(
+    "대출 항목",     # 이 레이블이 UI로 나옵니다
+    min_value=0,
+    value=3,
+    key="rows"
+)
+# rows 값 확인용(디버깅)
+st.write(f"선택된 항목 수: {rows}")
+
+# ─────────────────────────────
+# 자동계산 함수 (비율 기준 계산)
+# ─────────────────────────────
+def auto_calc(maxamt_key, ratio_key, principal_key):
+    try:
+        max_val = int(re.sub(r"[^\d]", "", st.session_state.get(maxamt_key, "") or "0"))
+        rat_val = int(re.sub(r"[^\d]", "", st.session_state.get(ratio_key, "") or "0"))
+        pri_val = int(re.sub(r"[^\d]", "", st.session_state.get(principal_key, "") or "0"))
+
+        if rat_val > 0:
+            if max_val > 0 and pri_val == 0:
+                st.session_state[principal_key] = f"{max_val * 100 // rat_val:,}"
+            elif pri_val > 0 and max_val == 0:
+                st.session_state[maxamt_key] = f"{pri_val * rat_val // 100:,}"
+    except:
+        pass
+
+# ─────────────────────────────
+# 대출 항목 입력 및 items 초기화
+# ─────────────────────────────
+rows_val = st.session_state.get("rows")
+try:
+    rows = int(rows_val)
+except Exception:
+    rows = 0
+
 items = []
-
-def format_with_comma(key):
-    raw = st.session_state.get(key, "")
-    clean = re.sub(r"[^\d]", "", raw)
-    if clean.isdigit():
-        st.session_state[key] = "{:,}".format(int(clean))
-    else:
-        st.session_state[key] = ""
-
 for i in range(rows):
     cols = st.columns(5)
 
-    lender = cols[0].text_input("설정자", key=f"lender_{i}")
-
-    maxamt_key = f"maxamt_{i}"
-    ratio_key = f"ratio_{i}"
+    lender_key    = f"lender_{i}"
+    maxamt_key    = f"maxamt_{i}"
+    ratio_key     = f"ratio_{i}"
     principal_key = f"principal_{i}"
-    manual_flag_key = f"manual_{principal_key}"
+    status_key    = f"status_{i}"
 
-    # 채권최고액 & 비율 입력
-    max_amt = cols[1].text_input("채권최고액 (만)", key=maxamt_key, on_change=format_with_comma, args=(maxamt_key,))
-    ratio = cols[2].text_input("설정비율 (%)", value="120", key=ratio_key)
+    cols[0].text_input("설정자", key=lender_key)
 
-    # 계산
-    try:
-        max_amt_val = int(re.sub(r"[^\d]", "", st.session_state.get(maxamt_key, "0")))
-        ratio_val = int(re.sub(r"[^\d]", "", st.session_state.get(ratio_key, "120")))
-        auto_calc = max_amt_val * 100 // ratio_val
-    except:
-        auto_calc = 0
+    cols[1].text_input(
+        "채권최고액 (만)",
+        key=maxamt_key,
+        on_change=auto_calc,
+        args=(maxamt_key, ratio_key, principal_key)
+    )
 
-    # 자동계산 상태 유지
-    if manual_flag_key not in st.session_state:
-        st.session_state[manual_flag_key] = False
+    cols[2].text_input(
+        "설정비율 (%)",
+        key=ratio_key,
+        on_change=auto_calc,
+        args=(maxamt_key, ratio_key, principal_key)
+    )
 
-    # 입력 변동 → 자동계산 되도록 재설정
-    # 원금 필드가 수기입력 상태가 아니면 계산값으로 덮어쓰기
-    if not st.session_state[manual_flag_key]:
-        st.session_state[principal_key] = f"{auto_calc:,}"
-
-    # 원금 필드 입력 시 → 수기입력으로 전환 + 포맷
-    def on_manual_input(principal_key=principal_key, manual_flag_key=manual_flag_key):
-        st.session_state[manual_flag_key] = True
-        format_with_comma(principal_key)
-
-    # 원금 입력 필드
     cols[3].text_input(
         "원금",
         key=principal_key,
-        value=st.session_state.get(principal_key, ""),
-        on_change=on_manual_input,
+        on_change=format_with_comma,
+        args=(principal_key,)
     )
 
-    # 진행 구분
-    status = cols[4].selectbox("진행구분", ["유지", "대환", "선말소"], key=f"status_{i}")
+    cols[4].selectbox("진행구분", ["유지", "대환", "선말소"], key=status_key)
 
     items.append({
-        "설정자": lender,
-        "채권최고액": st.session_state.get(maxamt_key, ""),
-        "설정비율": ratio,
-        "원금": st.session_state.get(principal_key, ""),
-        "진행구분": status
+        "설정자": st.session_state[lender_key],
+        "채권최고액": st.session_state[maxamt_key],
+        "설정비율": st.session_state[ratio_key],
+        "원금": st.session_state[principal_key],
+        "진행구분": st.session_state[status_key]
     })
 
+# ─────────────────────────────
+# LTV 계산/결과 메모 생성/출력
+# ─────────────────────────────
 
-# ------------------------------
-# 🔹 LTV 계산부
-# ------------------------------
+rows = st.session_state.get("rows", 0)
+try:
+    rows = int(rows)
+except:
+    rows = 0
+
 raw_price_input = st.session_state.get("raw_price_input", "")
 total_value = parse_korean_number(raw_price_input)
+limit_senior_dict, limit_sub_dict, valid_items = {}, {}, []
+sum_dh = sum_sm = sum_maintain = sum_sub_principal = 0
 
-# ✅ 항상 초기화: 이후 오류 방지
-limit_senior_dict = {}
-limit_sub_dict = {}
-valid_items = []
-
-# ✅ 항상 초기화 (rows == 0 에도 필요)
-sum_dh = 0
-sum_sm = 0
-sum_maintain = 0
-sum_sub_principal = 0
-
-if int(rows) == 0:
-    st.markdown("### 📌 대출 항목이 없으므로 선순위 최대 LTV만 계산합니다")
+if rows == 0:
     for ltv in ltv_selected:
         limit = int(total_value * (ltv / 100) - deduction)
         limit = (limit // 10) * 10
         limit_senior_dict[ltv] = (limit, limit)
 else:
-    # 진행구분별 합계 계산
     sum_dh = sum(
         int(re.sub(r"[^\d]", "", item.get("원금", "0")) or 0)
         for item in items if item.get("진행구분") == "대환"
@@ -519,16 +476,11 @@ else:
         int(re.sub(r"[^\d]", "", item.get("원금", "0")) or 0)
         for item in items if item.get("진행구분") not in ["유지"]
     )
-
-    # 유효 항목만 필터링
     valid_items = [item for item in items if any([
         item.get("설정자", "").strip(),
         re.sub(r"[^\d]", "", item.get("채권최고액", "") or "0") != "0",
         re.sub(r"[^\d]", "", item.get("원금", "") or "0") != "0"
     ])]
-
-
-    # ✅ LTV 계산 함수
     def calculate_ltv(total_value, deduction, principal_sum, maintain_maxamt_sum, ltv, is_senior=True):
         if is_senior:
             limit = int(total_value * (ltv / 100) - deduction)
@@ -539,38 +491,29 @@ else:
         limit = (limit // 10) * 10
         available = (available // 10) * 10
         return limit, available
-
     for ltv in ltv_selected:
         if sum_maintain > 0:
             limit_sub_dict[ltv] = calculate_ltv(total_value, deduction, sum_sub_principal, sum_maintain, ltv, is_senior=False)
         else:
             limit_senior_dict[ltv] = calculate_ltv(total_value, deduction, sum_dh + sum_sm, 0, ltv, is_senior=True)
 
-
-# ------------------------------
-# 🔹 결과 출력
-# ------------------------------
-
-text_to_copy = f"고객명 : {customer_name}\n주소 : {address_input}\n"
+# 결과 메모 자동생성
+customer_name = st.session_state.get("customer_name", "")
+address_input = st.session_state.get("address_input", "")
+area_input = st.session_state.get("area_input", "")
 type_of_price = "하안가" if floor_num and floor_num <= 2 else "일반가"
-
-# 시세 정리
 clean_price = parse_korean_number(raw_price_input)
 formatted_price = "{:,}".format(clean_price) if clean_price else raw_price_input
+text_to_copy = f"고객명 : {customer_name}\n주소 : {address_input}\n"
 text_to_copy += f"{type_of_price} | KB시세: {formatted_price} | 전용면적 : {area_input} | 방공제 금액 : {deduction:,}만\n"
-
 if valid_items:
     text_to_copy += "\n대출 항목\n"
     for item in valid_items:
         raw_max = re.sub(r"[^\d]", "", item.get("채권최고액", "0"))
         max_amt = int(raw_max) if raw_max else 0
-
         raw_principal = re.sub(r"[^\d]", "", item.get("원금", "0"))
         principal_amt = int(raw_principal) if raw_principal else 0
-
         text_to_copy += f"{item.get('설정자', '')} | 채권최고액: {max_amt:,} | 비율: {item.get('설정비율', '0')}% | 원금: {principal_amt:,} | {item.get('진행구분', '')}\n"
-
-
 for ltv in ltv_selected:
     if ltv in limit_senior_dict:
         limit, avail = limit_senior_dict[ltv]
@@ -578,33 +521,20 @@ for ltv in ltv_selected:
     if ltv in limit_sub_dict:
         limit, avail = limit_sub_dict[ltv]
         text_to_copy += f"\n후순위 LTV {ltv}% {limit:,} 가용 {avail:,}"
-
-
 text_to_copy += "\n진행구분별 원금 합계\n"
 if sum_dh > 0:
     text_to_copy += f"대환: {sum_dh:,}만\n"
 if sum_sm > 0:
     text_to_copy += f"선말소: {sum_sm:,}만\n"
 
-# ✅ 결과내용 자동 생성 시 세션에 저장
+# 결과 텍스트를 항상 세션에 저장
 st.session_state["text_to_copy"] = text_to_copy
-
-# ✅ 출력은 세션 값만 보여줌 (value 제거)
 st.text_area("결과 내용", height=320, key="text_to_copy")
 
 
-# ------------------------------
-# 🔹 수수료 계산부
-# ------------------------------
-
-import re
-
-def format_with_commas(value):
-    try:
-        return f"{int(value):,}"
-    except:
-        return "0"
-
+# ─────────────────────────────
+# 수수료 계산부
+# ─────────────────────────────
 def parse_comma_number(text):
     try:
         return int(re.sub(r"[^\d]", "", text))
@@ -612,28 +542,21 @@ def parse_comma_number(text):
         return 0
 
 col1, col2, col3, col4 = st.columns(4)
-
 with col1:
-    consult_input = st.text_input("컨설팅 금액 (만원)", "", key="consult_amt")
-    consult_amount = parse_comma_number(consult_input)
-
+    st.text_input("컨설팅 금액 (만원)", "", key="consult_amt")
+    consult_amount = parse_comma_number(st.session_state.get("consult_amt", "0"))
 with col2:
-    consult_rate = st.number_input("컨설팅 수수료율 (%)", min_value=0.0, value=1.5, step=0.1, format="%.1f")
-
+    consult_rate = st.number_input("컨설팅 수수료율 (%)", min_value=0.0, value=1.5, step=0.1, format="%.1f", key="consult_rate")
 with col3:
-    bridge_input = st.text_input("브릿지 금액 (만원)", "", key="bridge_amt")
-    bridge_amount = parse_comma_number(bridge_input)
-
+    st.text_input("브릿지 금액 (만원)", "", key="bridge_amt")
+    bridge_amount = parse_comma_number(st.session_state.get("bridge_amt", "0"))
 with col4:
-    bridge_rate = st.number_input("브릿지 수수료율 (%)", min_value=0.0, value=0.7, step=0.1, format="%.1f")
+    bridge_rate = st.number_input("브릿지 수수료율 (%)", min_value=0.0, value=0.7, step=0.1, format="%.1f", key="bridge_rate")
 
-# 수수료 계산
 consult_fee = int(consult_amount * consult_rate / 100)
 bridge_fee = int(bridge_amount * bridge_rate / 100)
 total_fee = consult_fee + bridge_fee
 
-
-# 출력
 st.markdown(f"""
 #### 수수료 합계: **{total_fee:,}만원**
 - 컨설팅 수수료: {consult_fee:,}만원
@@ -643,11 +566,8 @@ st.markdown(f"""
 st.markdown("---")
 st.markdown("### 💾 수동 저장")
 
-
-# ------------------------------
-# 🔹 수동 저장 버튼
-# ------------------------------
-
+# ─────────────────────────────
+# 저장 버튼 (최종 결과만 저장)
+# ─────────────────────────────
 if st.button("📌 이 입력 내용 저장하기", key="manual_save_button"):
-    from history_manager import save_user_input
     save_user_input()

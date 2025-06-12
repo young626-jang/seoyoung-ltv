@@ -6,31 +6,54 @@ from datetime import datetime
 from ast import literal_eval
 import requests
 
-NOTION_TOKEN = "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"
-NOTION_DB_ID = "20eebdf1-11b5-80ad-9004-c7e82d290cbc"
-NOTION_HEADERS = {
-    "Authorization": f"Bearer {NOTION_TOKEN}",
-    "Content-Type": "application/json",
-    "Notion-Version": "2022-06-28"
-}
+# ───────────────────────────────────────────────
+# 🔑 Notion → 세션 키 매핑
+# ───────────────────────────────────────────────
 
 KEY_MAP = {
     "고객명": "customer_name",
     "주소": "address_input",
-    "지역": "region",
-    "방공제": "manual_d",
+    "방공제 지역": "region",
+    "방공제 금액": "manual_d",
     "KB시세": "raw_price_input",
     "전용면적": "area_input",
-    "층수": "extracted_floor",
-    "LTV비율": "ltv_selected",
-    "수수료": "total_fee_text",
-    "대출항목": "loan_summary",
+    "LTV비율1": "ltv1",
+    "LTV비율2": "ltv2",
     "메모": "text_to_copy"
 }
 
+
+# ─────────────────────────────
+# 🔢 시세 변환 함수 (한글 입력 → 숫자)
+# ─────────────────────────────
+def parse_korean_number(text: str) -> int:
+    txt = text.replace(",", "").strip()
+    total = 0
+    m = re.search(r"(\d+)\s*억", txt)
+    if m:
+        total += int(m.group(1)) * 10000
+    m = re.search(r"(\d+)\s*천만", txt)
+    if m:
+        total += int(m.group(1)) * 1000
+    m = re.search(r"(\d+)\s*만", txt)
+    if m:
+        total += int(m.group(1))
+    if total == 0:
+        try:
+            total = int(txt)
+        except:
+            total = 0
+    return total
+
+# ─────────────────────────────
+# 🧾 고객 목록 반환
+# ─────────────────────────────
 def get_customer_options():
     return list(st.session_state.get("notion_customers", {}).keys())
 
+# ─────────────────────────────
+# 🧲 Notion → 전체 고객 정보 불러오기
+# ─────────────────────────────
 def fetch_all_notion_customers():
     notion_customers = {}
     try:
@@ -68,10 +91,16 @@ def fetch_all_notion_customers():
         st.warning(f"❗ Notion 데이터 조회 실패: {e}")
     st.session_state["notion_customers"] = notion_customers
 
+# ─────────────────────────────
+# 📥 고객 정보 불러오기
+# ─────────────────────────────
+
+# 파이트 파일에서 불러오기
+
 def load_customer_input(customer_name):
     data = st.session_state.get("notion_customers", {}).get(customer_name)
     if not data:
-        st.warning("📭 불러올 데이터가 없습니다.")
+        st.warning("포토 데이터가 없습니다.")
         return
 
     for key, val in data.items():
@@ -81,12 +110,30 @@ def load_customer_input(customer_name):
             continue
         if key == "raw_price":
             val = "{:,}".format(int(val)) if isinstance(val, int) else str(val)
-        st.session_state[key] = val
 
-    # ✅ 저장된 결과 내용만 복원
+        app_key = KEY_MAP.get(key, key)
+        st.session_state[app_key] = val
+
+    # ◼ LTV비율1, 2 등 발전시 ltv_selected 모델에도 추가
+    ltv1 = st.session_state.get("ltv1", "")
+    ltv2 = st.session_state.get("ltv2", "")
+    ltv_selected = []
+    for val in [ltv1, ltv2]:
+        try:
+            v = int(val)
+            if 1 <= v <= 100:
+                ltv_selected.append(v)
+        except:
+            pass
+    st.session_state["ltv_selected"] = list(dict.fromkeys(ltv_selected))
+
+    # 만약 메모가 있으면 복원
     if "text_to_copy" in data:
         st.session_state["text_to_copy"] = data["text_to_copy"]
-
+    
+# ─────────────────────────────
+# ❌ 고객 정보 삭제
+# ─────────────────────────────
 def delete_customer_from_notion(customer_name: str):
     if not customer_name:
         st.warning("❗ 고객명이 비어 있습니다.")
@@ -114,49 +161,38 @@ def delete_customer_from_notion(customer_name: str):
     except Exception as e:
         st.error(f"❌ 삭제 실패: {e}")
 
+# ─────────────────────────────
+# 💾 고객 정보 저장
+# ─────────────────────────────
 def save_user_input():
     customer_name = st.session_state.get("customer_name", "").strip()
     if not customer_name:
         return
 
+    # LTV 두 개 분리 저장
+    ltv1 = st.session_state.get("ltv1", "").strip()
+    ltv2 = st.session_state.get("ltv2", "").strip()
+
     data = {
         "고객명": customer_name,
         "주소": st.session_state.get("address_input", ""),
-        "지역": st.session_state.get("region", ""),
-        "방공제": int(re.sub(r"[^\d]", "", str(st.session_state.get("manual_d", "0"))) or 0),
+        "방공제 지역": st.session_state.get("region", ""),
+        "방공제 금액": int(re.sub(r"[^\d]", "", str(st.session_state.get("manual_d", "0"))) or 0),
         "KB시세": int(re.sub(r"[^\d]", "", str(st.session_state.get("raw_price_input", "0"))) or 0),
         "전용면적": st.session_state.get("area_input", ""),
-        "층수": st.session_state.get("extracted_floor", 0),
-        "LTV비율": ", ".join([str(l) for l in st.session_state.get("ltv_selected", [])]),
-        "수수료": st.session_state.get("total_fee_text", ""),
-        "대출항목": "",
+        "LTV비율1": ltv1,
+        "LTV비율2": ltv2,
+        "메모": st.session_state.get("text_to_copy", ""),
         "저장시각": datetime.now().isoformat(),
-        "메모": st.session_state.get("text_to_copy", "")
     }
 
-    rows = int(st.session_state.get("rows", 0))
-    loan_summary = []
-    for i in range(rows):
-        item = {
-            "설정자": st.session_state.get(f"lender_{i}", ""),
-            "채권최고액": st.session_state.get(f"maxamt_{i}", ""),
-            "비율": st.session_state.get(f"ratio_{i}", ""),
-            "원금": st.session_state.get(f"principal_{i}", ""),
-            "진행": st.session_state.get(f"status_{i}", ""),
-        }
-        if item["설정자"]:
-            line = f"{item['설정자']} | 최고액: {item['채권최고액']} | 비율: {item['비율']}% | 원금: {item['원금']} | {item['진행']}"
-            loan_summary.append(line)
-    data["대출항목"] = "\n".join(loan_summary)
-
+    # 기존 페이지 삭제
     try:
         query_url = f"https://api.notion.com/v1/databases/{NOTION_DB_ID}/query"
         query_payload = {
             "filter": {
                 "property": "고객명",
-                "title": {
-                    "equals": customer_name
-                }
+                "title": {"equals": customer_name}
             }
         }
         res = requests.post(query_url, headers=NOTION_HEADERS, json=query_payload)
@@ -168,22 +204,21 @@ def save_user_input():
     except:
         pass
 
+    # 새 페이지 생성
     try:
         payload = {
             "parent": {"database_id": NOTION_DB_ID},
             "properties": {
                 "고객명": {"title": [{"text": {"content": data["고객명"]}}]},
                 "주소": {"rich_text": [{"text": {"content": data["주소"]}}]},
-                "지역": {"rich_text": [{"text": {"content": data["지역"]}}]},
-                "방공제": {"number": data["방공제"]},
+                "방공제 지역": {"rich_text": [{"text": {"content": data["방공제 지역"]}}]},
+                "방공제 금액": {"number": data["방공제 금액"]},
                 "KB시세": {"number": data["KB시세"]},
                 "전용면적": {"rich_text": [{"text": {"content": data["전용면적"]}}]},
-                "층수": {"number": int(data["층수"] or 0)},
-                "LTV비율": {"rich_text": [{"text": {"content": data["LTV비율"]}}]},
-                "수수료": {"rich_text": [{"text": {"content": data["수수료"]}}]},
-                "대출항목": {"rich_text": [{"text": {"content": data["대출항목"]}}]},
-                "저장시각": {"date": {"start": data["저장시각"]}},
-                "메모": {"rich_text": [{"text": {"content": data["메모"]}}]}
+                "LTV비율1": {"rich_text": [{"text": {"content": data["LTV비율1"]}}]},
+                "LTV비율2": {"rich_text": [{"text": {"content": data["LTV비율2"]}}]},
+                "메모": {"rich_text": [{"text": {"content": data["메모"]}}]},
+                "저장시각": {"date": {"start": data["저장시각"]}}
             }
         }
         res = requests.post("https://api.notion.com/v1/pages", headers=NOTION_HEADERS, json=payload)

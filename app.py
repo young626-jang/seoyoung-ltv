@@ -250,9 +250,9 @@ with col1:
     customer_list = get_customer_options()
     selected_customer = st.selectbox("고객 선택 (불러오기 또는 삭제)", [""] + customer_list, key="load_customer_select")
     if selected_customer:
-        load_customer_input(selected_customer)
-        # 결과 텍스트만 복원
-        st.success(f"✅ '{selected_customer}'님의 데이터가 불러와졌습니다.")
+        if st.button("🔄 선택한 고객 정보 불러오기"):
+            load_customer_input(selected_customer)
+            st.success(f"✅ '{selected_customer}'님의 데이터가 불러와졌습니다.")
 
 with col2:
     if selected_customer and st.button("🗑️ 선택한 고객 삭제하기"):

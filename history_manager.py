@@ -23,16 +23,18 @@ NOTION_HEADERS = {
 
 KEY_MAP = {
     "고객명": "customer_name",
+    "생년월일": "birth_date",   # ✅ 추가
     "주소": "address_input",
-    "방공제 지역": "region",
-    "방공제 금액": "manual_d",
+    "지역": "region",
+    "방공제": "manual_d",
     "KB시세": "raw_price_input",
     "전용면적": "area_input",
-    "LTV비율1": "ltv1",
-    "LTV비율2": "ltv2",
+    "층수": "extracted_floor",
+    "LTV비율": "ltv_selected",
+    "수수료": "total_fee_text",
+    "대출항목": "loan_summary",
     "메모": "text_to_copy"
 }
-
 
 # ─────────────────────────────
 # 🔢 시세 변환 함수 (한글 입력 → 숫자)
@@ -217,6 +219,7 @@ def save_user_input():
             st.error("❌ 고객 ID 추출 실패")
             return
 
+
         # 2️⃣ 대출항목 리스트 저장
         rows = int(st.session_state.get("rows", 0) or 0)
         for i in range(rows):
@@ -232,7 +235,8 @@ def save_user_input():
             loan_payload = {
                 "parent": {"database_id": NOTION_DB_ID_LOAN},
                 "properties": {
-                    "설정자": {"rich_text": [{"text": {"content": lender}}]},
+                    "고객명": {"title": [{"text": {"content": data["고객명"]}}]},
+                    "생년월일": {"rich_text": [{"text": {"content": data["생년월일"]}}]},  # ✅ 추가
                     "채권최고액": {"number": int(maxamt or 0)},
                     "설정비율": {"number": int(ratio or 0)},
                     "원금": {"number": int(principal or 0)},
@@ -243,3 +247,22 @@ def save_user_input():
             requests.post("https://api.notion.com/v1/pages", headers=NOTION_HEADERS, json=loan_payload)
 
         st.success("✅ 고객 + 대출항목 저장 완료")
+
+
+def delete_customer_from_notion(customer_name):
+    try:
+        query_url = f"https://api.notion.com/v1/databases/{NOTION_DB_ID}/query"
+        query_payload = {
+            "filter": {
+                "property": "고객명",
+                "title": {"equals": customer_name}
+            }
+        }
+        res = requests.post(query_url, headers=NOTION_HEADERS, json=query_payload)
+        results = res.json().get("results", [])
+        for page in results:
+            page_id = page["id"]
+            del_url = f"https://api.notion.com/v1/pages/{page_id}"
+            requests.patch(del_url, headers=NOTION_HEADERS, json={"archived": True})
+    except Exception as e:
+        st.error(f"❌ 고객 삭제 실패: {e}")

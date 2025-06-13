@@ -276,13 +276,22 @@ with col2:
 
 st.markdown("📄 기본 정보 입력")
 
-info_col1, info_col2 = st.columns(2)
-with info_col1:
-    st.text_input("주소", st.session_state.get("extracted_address", ""), key="address_input")
-with info_col2:
-    st.text_input("고객명", key="customer_name")
-    st.text_input("생년월일 (6자리)", key="birth_date")  # ← 추가
+col1, col2 = st.columns(2)  # 비율조절 없이 동일 너비
 
+with col1:
+    address_input = st.text_input(
+        "주소",
+        value=st.session_state.get("address_input", ""),
+        key="address_input"
+    )
+
+with col2:
+    st.text_input(
+        "고객명 및 생년월일 (예: 홍길동 860101)",
+        value=st.session_state.get("customer_name", ""),
+        key="customer_name"
+    )
+    
 
 # 🔹 방공제 지역 및 금액 입력
 col1, col2 = st.columns(2)

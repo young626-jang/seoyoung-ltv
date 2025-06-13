@@ -158,6 +158,7 @@ def save_user_input():
 
     data = {
         "고객명": customer_name,
+        "생년월일": st.session_state.get("birth_date", ""),  # ← 추가
         "주소": st.session_state.get("address_input", ""),
         "방공제 지역": st.session_state.get("region", ""),
         "방공제 금액": int(re.sub(r"[^\d]", "", str(st.session_state.get("manual_d", "0"))) or 0),

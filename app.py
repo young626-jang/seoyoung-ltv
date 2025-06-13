@@ -190,8 +190,7 @@ if uploaded_file:
 
     # ✅ 고객명 / 생년월일 자동 저장
     if co_owners:
-        st.session_state["customer_name"] = co_owners[0][0]
-        st.session_state["birth_date"] = co_owners[0][1]
+        st.session_state["customer_name"] = f"{co_owners[0][0]} {co_owners[0][1]}"
 
     # 2. 임시 PDF 파일 저장 (한번만)
     if "uploaded_pdf_path" not in st.session_state:

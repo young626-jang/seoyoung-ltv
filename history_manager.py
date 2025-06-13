@@ -143,36 +143,6 @@ def load_customer_input(customer_name):
         st.session_state["text_to_copy"] = data["text_to_copy"]
     
 # ─────────────────────────────
-# ❌ 고객 정보 삭제
-# ─────────────────────────────
-def delete_customer_from_notion(customer_name: str):
-    if not customer_name:
-        st.warning("❗ 고객명이 비어 있습니다.")
-        return
-    try:
-        query_url = f"https://api.notion.com/v1/databases/{NOTION_DB_ID}/query"
-        query_payload = {
-            "filter": {
-                "property": "고객명",
-                "title": {
-                    "equals": customer_name
-                }
-            }
-        }
-        res = requests.post(query_url, headers=NOTION_HEADERS, json=query_payload)
-        results = res.json().get("results", [])
-        if not results:
-            st.info("📭 Notion에 해당 고객명이 존재하지 않습니다.")
-            return
-        for page in results:
-            page_id = page["id"]
-            del_url = f"https://api.notion.com/v1/pages/{page_id}"
-            requests.patch(del_url, headers=NOTION_HEADERS, json={"archived": True})
-        st.success(f"🗑️ Notion에서 '{customer_name}' 정보가 삭제되었습니다.")
-    except Exception as e:
-        st.error(f"❌ 삭제 실패: {e}")
-
-# ─────────────────────────────
 # 💾 고객 정보 저장
 # ─────────────────────────────
 def save_user_input():
@@ -215,8 +185,7 @@ def save_user_input():
     except:
         pass
 
-    # 새 페이지 생성
-    try:
+        # 새 페이지 생성 payload
         payload = {
             "parent": {"database_id": NOTION_DB_ID},
             "properties": {
@@ -232,10 +201,45 @@ def save_user_input():
                 "저장시각": {"date": {"start": data["저장시각"]}}
             }
         }
-        res = requests.post("https://api.notion.com/v1/pages", headers=NOTION_HEADERS, json=payload)
-        if res.status_code == 200:
-            st.success("✅ Notion 저장 완료")
-        else:
-            st.error(f"❌ Notion 저장 실패: {res.text}")
-    except Exception as e:
-        st.error(f"❌ Notion 요청 오류: {str(e)}")
+
+        # 고객 저장
+        try:
+            res = requests.post("https://api.notion.com/v1/pages", headers=NOTION_HEADERS, json=payload)
+            if res.status_code != 200:
+                st.error(f"❌ 고객 저장 실패: {res.text}")
+                return
+        except Exception as e:
+            st.error(f"❌ 예외 발생: {e}")
+            return
+
+        customer_page_id = res.json().get("id")
+        if not customer_page_id:
+            st.error("❌ 고객 ID 추출 실패")
+            return
+
+        # 2️⃣ 대출항목 리스트 저장
+        rows = int(st.session_state.get("rows", 0) or 0)
+        for i in range(rows):
+            lender = st.session_state.get(f"lender_{i}", "")
+            maxamt = re.sub(r"[^\d]", "", st.session_state.get(f"maxamt_{i}", "0"))
+            ratio = re.sub(r"[^\d]", "", st.session_state.get(f"ratio_{i}", "0"))
+            principal = re.sub(r"[^\d]", "", st.session_state.get(f"principal_{i}", "0"))
+            status = st.session_state.get(f"status_{i}", "")
+
+            if not lender:
+                continue
+
+            loan_payload = {
+                "parent": {"database_id": NOTION_DB_ID_LOAN},
+                "properties": {
+                    "설정자": {"rich_text": [{"text": {"content": lender}}]},
+                    "채권최고액": {"number": int(maxamt or 0)},
+                    "설정비율": {"number": int(ratio or 0)},
+                    "원금": {"number": int(principal or 0)},
+                    "진행구분": {"select": {"name": status}},
+                    "고객": {"relation": [{"id": customer_page_id}]}
+                }
+            }
+            requests.post("https://api.notion.com/v1/pages", headers=NOTION_HEADERS, json=loan_payload)
+
+        st.success("✅ 고객 + 대출항목 저장 완료")

@@ -6,7 +6,7 @@ import fitz  # PyMuPDF
 import pandas as pd
 import streamlit as st
 from datetime import datetime
-
+from history_manager import delete_customer_from_notion
 from ltv_map import region_map
 from history_manager import (
     get_customer_options,
@@ -14,6 +14,7 @@ from history_manager import (
     save_user_input,
     fetch_all_notion_customers,
 )
+
 
 # ─────────────────────────────
 # 🏠 상단 타이틀 + 고객 이력 불러오기
@@ -108,11 +109,14 @@ def pdf_to_image(pdf_path, page_num, zoom=2.0):
     return pix.tobytes("png")
 
 
+# ✅ 콤마 + 만단위 절삭 함수 (100단위 절삭)
 def format_with_comma(key):
     raw = st.session_state.get(key, "")
     clean = re.sub(r"[^\d]", "", raw)
     if clean.isdigit():
-        st.session_state[key] = "{:,}".format(int(clean))
+        val = int(clean)
+        truncated = (val // 100) * 100
+        st.session_state[key] = f"{truncated:,}"
     else:
         st.session_state[key] = ""
 
@@ -182,6 +186,11 @@ if uploaded_file:
     st.session_state["extracted_floor"] = floor
     st.session_state["co_owners"] = co_owners
     st.success(f"📍 PDF에서 주소 추출: {address}")
+
+    # ✅ 고객명 / 생년월일 자동 저장
+    if co_owners:
+        st.session_state["customer_name"] = co_owners[0][0]
+        st.session_state["birth_date"] = co_owners[0][1]
 
     # 2. 임시 PDF 파일 저장 (한번만)
     if "uploaded_pdf_path" not in st.session_state:
@@ -407,11 +416,12 @@ for i in range(rows):
 
     cols[0].text_input("설정자", key=lender_key)
 
+    # 🔹 원금/채권최고액 입력부에서 format_with_comma 연결
     cols[1].text_input(
         "채권최고액 (만)",
         key=maxamt_key,
-        on_change=auto_calc,
-        args=(maxamt_key, ratio_key, principal_key)
+        on_change=format_with_comma,
+        args=(maxamt_key,)
     )
 
     cols[2].text_input(
@@ -542,12 +552,12 @@ def parse_comma_number(text):
 
 col1, col2, col3, col4 = st.columns(4)
 with col1:
-    st.text_input("컨설팅 금액 (만원)", "", key="consult_amt")
+    st.text_input("컨설팅 금액 (만원)", key="consult_amt", on_change=format_with_comma, args=("consult_amt",))
     consult_amount = parse_comma_number(st.session_state.get("consult_amt", "0"))
 with col2:
     consult_rate = st.number_input("컨설팅 수수료율 (%)", min_value=0.0, value=1.5, step=0.1, format="%.1f", key="consult_rate")
 with col3:
-    st.text_input("브릿지 금액 (만원)", "", key="bridge_amt")
+    st.text_input("브릿지 금액 (만원)", key="bridge_amt", on_change=format_with_comma, args=("bridge_amt",))
     bridge_amount = parse_comma_number(st.session_state.get("bridge_amt", "0"))
 with col4:
     bridge_rate = st.number_input("브릿지 수수료율 (%)", min_value=0.0, value=0.7, step=0.1, format="%.1f", key="bridge_rate")

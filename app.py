@@ -182,6 +182,7 @@ uploaded_file = st.file_uploader("📎 PDF 파일 업로드", type="pdf")
 if uploaded_file:
     text, external_links, address, area, floor, co_owners = process_pdf(uploaded_file)
     st.session_state["extracted_address"] = address
+    st.session_state["address_input"] = address
     st.session_state["extracted_area"] = area
     st.session_state["extracted_floor"] = floor
     st.session_state["co_owners"] = co_owners

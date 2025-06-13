@@ -12,7 +12,6 @@ from history_manager import (
     get_customer_options,
     load_customer_input,
     save_user_input,
-    delete_customer_from_notion,
     fetch_all_notion_customers,
 )
 

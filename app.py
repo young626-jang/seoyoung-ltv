@@ -1,32 +1,121 @@
 import os
 import re
 import tempfile
-import platform
-import fitz  # PyMuPDF
-import pandas as pd
+import fitz
 import streamlit as st
 from datetime import datetime
-from history_manager import delete_customer_from_notion
-from ltv_map import region_map
 from history_manager import (
     get_customer_options,
     load_customer_input,
-    save_user_input,
+    delete_customer_from_notion,
     fetch_all_notion_customers,
+    create_new_customer,
+    update_existing_customer,
 )
-
+from ltv_map import region_map
 
 # ─────────────────────────────
-# 🏠 상단 타이틀 + 고객 이력 불러오기
+# 🏠 페이지 설정 (가장 먼저 실행)
 # ─────────────────────────────
-
-# ✅ 페이지 설정 (페이지 탭 고객명 + 아이콘)
 st.set_page_config(
     page_title="LTV 계산기",
-    page_icon="📊",  # 또는 💰, 🧮, 🏦 등 원하는 이모지 가능
-    layout="wide",  # ← 화면 전체 너비로 UI 확장
-    initial_sidebar_state="auto"
+    page_icon="📊",
+    layout="wide",
 )
+# ------------------------------
+# 🔹 함수 정의
+# ------------------------------
+def reset_app_state():
+    """앱 상태를 초기화하는 전용 콜백 함수"""
+    if "uploaded_pdf_path" in st.session_state and os.path.exists(st.session_state.uploaded_pdf_path):
+        os.remove(st.session_state.uploaded_pdf_path)
+
+    keys_to_clear = [
+        "customer_name", "address_input", "region", "manual_d", "raw_price_input", 
+        "area_input", "ltv1", "ltv2", "consult_amt", "consult_rate", "bridge_amt", 
+        "bridge_rate", "text_to_copy", "current_region", "just_loaded", 
+        "extracted_address", "extracted_area", "extracted_floor", "co_owners",
+        "uploaded_pdf_path", "pdf_processed", "page_index", "uploaded_file_name", "pdf_uploader"
+    ]
+    
+    for key in keys_to_clear:
+        if key in st.session_state:
+            del st.session_state[key]
+    
+    num_items = st.session_state.get("num_loan_items", 1)
+    for i in range(num_items):
+        for prefix in ["lender", "maxamt", "ratio", "principal", "status", "prev_max", "prev_pri"]:
+            key = f"{prefix}_{i}"
+            if key in st.session_state:
+                del st.session_state[key]
+
+    st.session_state.num_loan_items = 1
+
+
+# ------------------------------
+# 유틸 함수
+# ------------------------------
+
+def parse_comma_number(text):
+    try:
+        return int(re.sub(r"[^\d]", "", str(text)))
+    except:
+        return 0
+
+# ✅ 콤마 + 만단위 절삭 함수 (100단위 절삭)
+
+def format_with_comma(key):
+    raw = st.session_state.get(key, "")
+    clean = re.sub(r"[^\d]", "", str(raw))
+    if clean.isdigit():
+        val = int(clean)
+        truncated = (val // 100) * 100
+        st.session_state[key] = f"{truncated:,}"
+    else:
+        st.session_state[key] = ""
+
+def format_kb_price():
+    raw = st.session_state.get("raw_price_input", "")
+    clean = parse_korean_number(raw)
+    formatted = "{:,}".format(clean) if clean else ""
+    st.session_state["raw_price"] = formatted
+    st.session_state["raw_price_input"] = formatted  # ← 필드 표시값도 같이 갱신
+
+def format_area():
+    raw = st.session_state.get("area_input", "")
+    clean = re.sub(r"[^\d.]", "", raw)
+    st.session_state["extracted_area"] = f"{clean}㎡" if clean else ""
+    
+def floor_to_unit(value, unit=100):
+    return value // unit * unit
+
+def pdf_to_image(pdf_path, page_num, zoom=2.0):
+    doc = fitz.open(pdf_path)
+    if page_num >= len(doc):
+        return None
+    page = doc.load_page(page_num)
+    mat = fitz.Matrix(zoom, zoom)
+    pix = page.get_pixmap(matrix=mat)
+    return pix.tobytes("png")
+
+def parse_korean_number(text: str) -> int:
+    txt = str(text).replace(",", "").strip()
+    total = 0
+    m = re.search(r"(\d+)\s*억", txt)
+    if m:
+        total += int(m.group(1)) * 10000
+    m = re.search(r"(\d+)\s*천만", txt)
+    if m:
+        total += int(m.group(1)) * 1000
+    m = re.search(r"(\d+)\s*만", txt)
+    if m:
+        total += int(m.group(1))
+    if total == 0:
+        try:
+            total = int(txt)
+        except:
+            total = 0
+    return total
 
 # ------------------------------
 # 🔹 텍스트 기반 추출 함수들
@@ -92,129 +181,56 @@ def process_pdf(uploaded_file):
 
     return text, external_links, address, area, floor, co_owners
 
-# ------------------------------
-# 🔹 유틸 함수
-# ------------------------------
-
-def floor_to_unit(value, unit=100):
-    return value // unit * unit
-
-def pdf_to_image(pdf_path, page_num, zoom=2.0):
-    doc = fitz.open(pdf_path)
-    if page_num >= len(doc):
-        return None
-    page = doc.load_page(page_num)
-    mat = fitz.Matrix(zoom, zoom)
-    pix = page.get_pixmap(matrix=mat)
-    return pix.tobytes("png")
-
-
-# ✅ 콤마 + 만단위 절삭 함수 (100단위 절삭)
-def format_with_comma(key):
-    raw = st.session_state.get(key, "")
-    clean = re.sub(r"[^\d]", "", raw)
-    if clean.isdigit():
-        val = int(clean)
-        truncated = (val // 100) * 100
-        st.session_state[key] = f"{truncated:,}"
-    else:
-        st.session_state[key] = ""
-
-def parse_korean_number(text: str) -> int:
-    txt = text.replace(",", "").strip()
-    total = 0
-    m = re.search(r"(\d+)\s*억", txt)
-    if m:
-        total += int(m.group(1)) * 10000
-    m = re.search(r"(\d+)\s*천만", txt)
-    if m:
-        total += int(m.group(1)) * 1000
-    m = re.search(r"(\d+)\s*만", txt)
-    if m:
-        total += int(m.group(1))
-    if total == 0:
-        try:
-            total = int(txt)
-        except:
-            total = 0
-    return total
-
-def format_kb_price():
-    raw = st.session_state.get("raw_price_input", "")
-    clean = parse_korean_number(raw)
-    formatted = "{:,}".format(clean) if clean else ""
-    st.session_state["raw_price"] = formatted
-    st.session_state["raw_price_input"] = formatted  # ← 필드 표시값도 같이 갱신
-
-def format_area():
-    raw = st.session_state.get("area_input", "")
-    clean = re.sub(r"[^\d.]", "", raw)
-    st.session_state["extracted_area"] = f"{clean}㎡" if clean else ""
-
-def calculate_ltv(total_value, deduction, principal_sum, maintain_maxamt_sum, ltv, is_senior=True):
-    if is_senior:
-        limit = int(total_value * (ltv / 100) - deduction)
-        available = int(limit - principal_sum)
-    else:
-        limit = int(total_value * (ltv / 100) - maintain_maxamt_sum - deduction)
-        available = int(limit - principal_sum)
-    limit = (limit // 10) * 10
-    available = (available // 10) * 10
-    return limit, available
-
-
-# ------------------------------
+# ─────────────────────────────
 # 🔹 세션 초기화
-# ------------------------------
+# ─────────────────────────────
+
+if "num_loan_items" not in st.session_state:
+    st.session_state.num_loan_items = 1
 
 for key in ["extracted_address", "extracted_area", "raw_price", "extracted_floor"]:
-    if key not in st.session_state:
-        st.session_state[key] = ""
+    if key not in st.session_state: st.session_state[key] = ""
+if "co_owners" not in st.session_state: st.session_state["co_owners"] = []
 
-# co_owners는 앱 첫 로딩 시에만 빈 리스트로 초기화
-if "co_owners" not in st.session_state:
-    st.session_state["co_owners"] = []
+# ─────────────────────────────
+# 📎 PDF 업로드 및 처리
+# ─────────────────────────────
 
-# 🔹 파일 업로더는 반드시 먼저
-uploaded_file = st.file_uploader("📎 PDF 파일 업로드", type="pdf")
+# 🔹 파일 업로더
+uploaded_file = st.file_uploader("📎 PDF 파일 업로드", type="pdf", key="pdf_uploader")
 
-# 🔹 파일이 업로드된 경우에만 처리
 if uploaded_file:
-    text, external_links, address, area, floor, co_owners = process_pdf(uploaded_file)
-    st.session_state["extracted_address"] = address
-    st.session_state["address_input"] = address
-    st.session_state["extracted_area"] = area
-    st.session_state["extracted_floor"] = floor
-    st.session_state["co_owners"] = co_owners
-    st.success(f"📍 PDF에서 주소 추출: {address}")
+    # PDF 처리 및 정보 추출 (기존 로직 유지)
+    if "uploaded_pdf_path" not in st.session_state or st.session_state.get('uploaded_file_name') != uploaded_file.name:
+        text, external_links, address, area, floor, co_owners = process_pdf(uploaded_file)
+        st.session_state["extracted_address"] = address
+        st.session_state["address_input"] = address
+        st.session_state["extracted_area"] = area
+        st.session_state["extracted_floor"] = floor
+        st.session_state["co_owners"] = co_owners
+        st.success(f"📍 PDF에서 주소 추출: {address}")
 
-    # ✅ 고객명 / 생년월일 자동 저장
-    if co_owners:
-        st.session_state["customer_name"] = f"{co_owners[0][0]} {co_owners[0][1]}"
+        if co_owners:
+            st.session_state["customer_name"] = f"{co_owners[0][0]} {co_owners[0][1]}"
 
-    # 2. 임시 PDF 파일 저장 (한번만)
-    if "uploaded_pdf_path" not in st.session_state:
         uploaded_file.seek(0)
         with tempfile.NamedTemporaryFile(delete=False, suffix=".pdf") as tmp_file:
             tmp_file.write(uploaded_file.getbuffer())
             st.session_state["uploaded_pdf_path"] = tmp_file.name
+        
+        st.session_state['uploaded_file_name'] = uploaded_file.name
+        st.session_state.page_index = 0
 
     pdf_path = st.session_state["uploaded_pdf_path"]
     doc = fitz.open(pdf_path)
     total_pages = len(doc)
-    doc.close()  # ✅ 꼭 닫아주세요!
+    doc.close()
 
-
-    # 3. 페이지 인덱스 세션 초기화
     if "page_index" not in st.session_state:
         st.session_state.page_index = 0
     page_index = st.session_state.page_index
 
-
-    # 4. 미리보기 이미지 렌더링
-    # 좌측 페이지
     img1 = pdf_to_image(pdf_path, page_index)
-    # 우측 페이지 (있을 경우)
     img2 = pdf_to_image(pdf_path, page_index + 1) if page_index + 1 < total_pages else None
 
     cols = st.columns(2)
@@ -232,92 +248,52 @@ if uploaded_file:
         if st.button("➡️ 다음 페이지") and page_index + 2 < total_pages:
             st.session_state.page_index += 2
 
-    # 56. 외부 링크 경고
-    if external_links:
+    if 'external_links' in locals() and external_links:
         st.warning("📎 PDF 내부에 외부 링크가 포함되어 있습니다:")
         for uri in external_links:
             st.code(uri)
 
 # ─────────────────────────────
-# 고객 선택/불러오기/삭제 UI (일관성)
+# 📄 기본 정보 입력 (수정된 버전)
 # ─────────────────────────────
 
-if "notion_customers" not in st.session_state:
-    fetch_all_notion_customers()
+st.subheader("기본 정보 입력")
 
-col1, col2 = st.columns([2, 1])
-with col1:
-    customer_list = get_customer_options()
-    selected_customer = st.selectbox("고객 선택 (불러오기 또는 삭제)", [""] + customer_list, key="load_customer_select")
-    if selected_customer:
-        if st.button("🔄 선택한 고객 정보 불러오기"):
-            load_customer_input(selected_customer)
-            st.success(f"✅ '{selected_customer}'님의 데이터가 불러와졌습니다.")
-
-with col2:
-    if selected_customer and st.button("🗑️ 선택한 고객 삭제하기"):
-        delete_customer_from_notion(selected_customer)
-        st.rerun()
-    if "uploaded_pdf_path" in st.session_state:
-        if st.button("🧹 임시 PDF 삭제"):
-            try:
-                pdf_path = st.session_state["uploaded_pdf_path"]
-                if os.path.exists(pdf_path):
-                    os.remove(pdf_path)
-                    del st.session_state["uploaded_pdf_path"]
-                    st.success("🧼 임시 PDF 파일이 삭제되었습니다.")
-                else:
-                    st.warning("❗ PDF 파일이 이미 삭제되었거나 존재하지 않습니다.")
-            except Exception as e:
-                st.error(f"삭제 중 오류 발생: {e}")
-
-
-
-
-st.markdown("📄 기본 정보 입력")
-
-col1, col2 = st.columns(2)  # 비율조절 없이 동일 너비
-
-with col1:
-    address_input = st.text_input(
-        "주소",
-        value=st.session_state.get("address_input", ""),
-        key="address_input"
-    )
-
-with col2:
-    st.text_input(
-        "고객명 및 생년월일 (예: 홍길동 860101)",
-        value=st.session_state.get("customer_name", ""),
-        key="customer_name"
-    )
-    
-
-# 🔹 방공제 지역 및 금액 입력
 col1, col2 = st.columns(2)
 with col1:
+    st.text_input("주소", key="address_input")
+with col2:
+    st.text_input("고객명 및 생년월일", key="customer_name")
+
+col1, col2 = st.columns(2)
+with col1:
+    # 1. 사용자가 드롭다운에서 지역을 선택하면 페이지가 새로고침됩니다.
     region = st.selectbox("방공제 지역", [""] + list(region_map.keys()), key="region")
+    
+with col2:
+    # 2. 선택된 지역에 맞는 금액을 찾습니다.
     default_d = region_map.get(region, 0)
 
-with col2:
-    md = st.session_state.get("manual_d")
-    if not isinstance(md, str) or md in ("", "0"):
-        st.session_state["manual_d"] = f"{default_d:,}"
-    st.text_input("방공제 금액 (만)", value=st.session_state["manual_d"], key="manual_d")
+    # 3. [핵심 수정] 현재 선택된 지역이 '이전 지역'과 다를 경우에만
+    #    방공제 금액을 새로운 기본값으로 덮어씁니다.
 
+    if st.session_state.get("current_region") != region:
+        st.session_state.manual_d = f"{default_d:,}"
+        st.session_state.current_region = region # '이전 지역'을 현재 지역으로 업데이트
 
-# 🔹 KB 시세 및 전용면적
+    # 4. 방공제 금액 입력칸을 그립니다. 값은 위 로직에 의해 결정됩니다.
+    st.text_input("방공제 금액 (만)", key="manual_d", on_change=format_with_comma, args=("manual_d",))
+
 col3, col4 = st.columns(2)
 with col3:
-    if "raw_price_input" not in st.session_state:
-        st.session_state["raw_price_input"] = st.session_state.get("raw_price_input_default", "")
     st.text_input("KB 시세 (만원)", key="raw_price_input", on_change=format_kb_price)
 with col4:
     st.text_input("전용면적 (㎡)", value=st.session_state.get("extracted_area", ""), key="area_input")
 
+# 이 아래의 코드는 기존과 동일하게 유지합니다.
 
 try:
-    cleaned = re.sub(r"[^\d]", "", st.session_state.get("manual_d", ""))
+    cleaned = re.sub(r"[^\d]", "", str(st.session_state.get("manual_d", "")))
     deduction = int(cleaned) if cleaned else default_d
 except:
     deduction = default_d
@@ -331,8 +307,10 @@ if floor_num is not None:
     else:
         st.markdown('<span style="color:#007BFF; font-weight:bold; font-size:18px">📈 일반가</span>', unsafe_allow_html=True)
 
-
+# ─────────────────────────────
 # 시세/외부사이트 버튼
+# ─────────────────────────────
+
 col1, col2, col3 = st.columns(3)
 with col1:
     if st.button("KB 시세 조회"):
@@ -352,213 +330,133 @@ with col3:
     else:
         st.info("📄 먼저 PDF 파일을 업로드해 주세요.")
 
-
+# ─────────────────────────────
 # 🔹 LTV 입력
-st.markdown("---")
-st.subheader("📌 LTV 비율 입력")
-ltv_col1, ltv_col2 = st.columns(2)
-with ltv_col1:
-    st.text_input("LTV 비율 ① (%)", "80", key="ltv1")
-with ltv_col2:
-    st.text_input("LTV 비율 ② (%)", "", key="ltv2")
+# ─────────────────────────────
 
-# 🔹 LTV 비율 리스트 생성 (자동 계산용)
-ltv_selected = []
-for key in ("ltv1", "ltv2"):
-    val = st.session_state.get(key, "")
-    try:
-        v = int(val)
-        if 1 <= v <= 100:
-            ltv_selected.append(v)
-    except:
-        pass
-ltv_selected = list(dict.fromkeys(ltv_selected))
+ltv_col1, ltv_col2 = st.columns(2)
+with ltv_col1: st.text_input("LTV 비율 ① (%)", "80", key="ltv1")
+with ltv_col2: st.text_input("LTV 비율 ② (%)", "", key="ltv2")
+
+ltv_selected = [int(v) for key in ("ltv1", "ltv2") if (v := st.session_state.get(key, "")) and v.isdigit() and 1 <= int(v) <= 100]
+ltv_selected = sorted(list(dict.fromkeys(ltv_selected)), reverse=True)
 st.session_state["ltv_selected"] = ltv_selected
 
 # ─────────────────────────────
-# LTV 입력 (UI)
+# 대출 항목 입력 (최종 수정본)
 # ─────────────────────────────
+st.markdown("---")
+st.subheader("대출 항목 입력")
 
-rows = st.number_input(
-    "대출 항목",     # 이 레이블이 UI로 나옵니다
-    min_value=0,
-    value=3,
-    key="rows"
-)
-# rows 값 확인용(디버깅)
-st.write(f"선택된 항목 수: {rows}")
-
-# ─────────────────────────────
-# 자동계산 함수 (비율 기준 계산)
-# ─────────────────────────────
-def auto_calc(maxamt_key, ratio_key, principal_key):
+def bidirectional_loan_calculator(maxamt_key, ratio_key, principal_key):
+    """하나의 대출 항목에 대한 양방향 자동 계산을 수행하는 콜백 함수"""
     try:
-        max_val = int(re.sub(r"[^\d]", "", st.session_state.get(maxamt_key, "") or "0"))
-        rat_val = int(re.sub(r"[^\d]", "", st.session_state.get(ratio_key, "") or "0"))
-        pri_val = int(re.sub(r"[^\d]", "", st.session_state.get(principal_key, "") or "0"))
+        # 현재 세션 상태의 값들을 가져옴
+        max_amt_str = st.session_state.get(maxamt_key, "")
+        ratio_str = st.session_state.get(ratio_key, "")
+        principal_str = st.session_state.get(principal_key, "")
 
+        # 마지막으로 포커스가 있었던 위젯(방금 사용자가 수정한 위젯)을 확인
+        last_active_widget = st.session_state.get("last_active_loan_widget")
+
+        # 숫자 값으로 변환
+        max_val = parse_comma_number(max_amt_str)
+        rat_val = parse_comma_number(ratio_str)
+        pri_val = parse_comma_number(principal_str)
+        
         if rat_val > 0:
-            if max_val > 0 and pri_val == 0:
-                st.session_state[principal_key] = f"{max_val * 100 // rat_val:,}"
-            elif pri_val > 0 and max_val == 0:
-                st.session_state[maxamt_key] = f"{pri_val * rat_val // 100:,}"
-    except:
+            # 사용자가 '채권최고액' 또는 '비율'을 수정했고, '원금'이 비어있거나 자동계산 대상일 때
+            if last_active_widget in [maxamt_key, ratio_key]:
+                calculated_pri = int(max_val * 100 / rat_val)
+                st.session_state[principal_key] = f"{calculated_pri:,}"
+            # 사용자가 '원금'을 수정했을 때
+            elif last_active_widget == principal_key:
+                calculated_max = int(pri_val * rat_val / 100)
+                st.session_state[maxamt_key] = f"{calculated_max:,}"
+
+    except (ValueError, ZeroDivisionError):
         pass
 
-# ─────────────────────────────
-# 대출 항목 입력 및 items 초기화
-# ─────────────────────────────
-rows_val = st.session_state.get("rows")
-try:
-    rows = int(rows_val)
-except Exception:
-    rows = 0
+def set_active_widget(key):
+    """어떤 위젯이 마지막으로 활성화되었는지 기록하는 헬퍼 함수"""
+    st.session_state["last_active_loan_widget"] = key
+
+
+st.number_input(
+    "대출 항목 개수",
+    min_value=1,
+    key="num_loan_items"
+)
 
 items = []
-for i in range(rows):
+for i in range(st.session_state.get("num_loan_items", 1)):
+    lender_key, maxamt_key, ratio_key, principal_key, status_key = f"lender_{i}", f"maxamt_{i}", f"ratio_{i}", f"principal_{i}", f"status_{i}"
+
+    # --- [최종 수정] 양방향 자동 계산 로직 ---
+
+    # 1. 현재 입력된 값과 비율을 숫자로 변환합니다.
+    max_val = parse_comma_number(st.session_state.get(maxamt_key, ""))
+    pri_val = parse_comma_number(st.session_state.get(principal_key, ""))
+    rat_val = parse_comma_number(st.session_state.get(ratio_key, ""))
+
+    # 2. '직전 실행' 때의 값을 불러옵니다.
+    prev_max_val = st.session_state.get(f"prev_max_{i}", None)
+    prev_pri_val = st.session_state.get(f"prev_pri_{i}", None)
+
+    # 3. 위젯에 표시될 기본값을 현재 상태로 설정합니다.
+    maxamt_to_display = st.session_state.get(maxamt_key, "")
+    principal_to_display = st.session_state.get(principal_key, "")
+
+    # 4. 양방향 계산 실행 (로직 개선)
+    try:
+        if rat_val > 0:
+            # Case 1: 초기 계산 (한쪽이 비어있을 때)
+            if max_val > 0 and pri_val == 0:
+                calculated_pri = int(max_val * 100 / rat_val)
+                principal_to_display = f"{calculated_pri:,}"
+            elif pri_val > 0 and max_val == 0:
+                calculated_max = int(pri_val * rat_val / 100)
+                maxamt_to_display = f"{calculated_max:,}"
+            
+            # Case 2: 수정 시 재계산 (양쪽 모두 값이 있을 때)
+            elif max_val > 0 and pri_val > 0:
+                if max_val != prev_max_val: # 채권최고액이 수정되었으면
+                    calculated_pri = int(max_val * 100 / rat_val)
+                    principal_to_display = f"{calculated_pri:,}"
+                elif pri_val != prev_pri_val: # 원금이 수정되었으면
+                    calculated_max = int(pri_val * rat_val / 100)
+                    maxamt_to_display = f"{calculated_max:,}"
+    except (ValueError, ZeroDivisionError):
+        pass
+
+    # 5. 위젯을 그립니다.
     cols = st.columns(5)
+    with cols[0]:
+        st.text_input(f"설정자 {i+1}", key=lender_key, label_visibility="collapsed", placeholder=f"{i+1}. 설정자")
+    with cols[1]:
+        st.text_input(f"채권최고액 {i+1}", value=maxamt_to_display, key=maxamt_key, on_change=format_with_comma, args=(maxamt_key,), label_visibility="collapsed", placeholder="채권최고액 (만)")
+    with cols[2]:
+        st.text_input(f"설정비율 {i+1}", key=ratio_key, label_visibility="collapsed", placeholder="설정비율 (%)")
+    with cols[3]:
+        st.text_input(f"원금 {i+1}", value=principal_to_display, key=principal_key, on_change=format_with_comma, args=(principal_key,), label_visibility="collapsed", placeholder="원금 (만)")
+    with cols[4]:
+        st.selectbox(f"진행구분 {i+1}", ["유지", "대환", "선말소"], key=status_key, index=0, label_visibility="collapsed")
 
-    lender_key    = f"lender_{i}"
-    maxamt_key    = f"maxamt_{i}"
-    ratio_key     = f"ratio_{i}"
-    principal_key = f"principal_{i}"
-    status_key    = f"status_{i}"
-
-    cols[0].text_input("설정자", key=lender_key)
-
-    # 🔹 원금/채권최고액 입력부에서 format_with_comma 연결
-    cols[1].text_input(
-        "채권최고액 (만)",
-        key=maxamt_key,
-        on_change=format_with_comma,
-        args=(maxamt_key,)
-    )
-
-    cols[2].text_input(
-        "설정비율 (%)",
-        key=ratio_key,
-        on_change=auto_calc,
-        args=(maxamt_key, ratio_key, principal_key)
-    )
-
-    cols[3].text_input(
-        "원금",
-        key=principal_key,
-        on_change=format_with_comma,
-        args=(principal_key,)
-    )
-
-    cols[4].selectbox("진행구분", ["유지", "대환", "선말소"], key=status_key)
+    # 6. 다음 실행을 위해 '화면에 표시된 값'을 '직전 값'으로 저장합니다.
+    st.session_state[f"prev_max_{i}"] = parse_comma_number(maxamt_to_display)
+    st.session_state[f"prev_pri_{i}"] = parse_comma_number(principal_to_display)
 
     items.append({
-        "설정자": st.session_state[lender_key],
-        "채권최고액": st.session_state[maxamt_key],
-        "설정비율": st.session_state[ratio_key],
-        "원금": st.session_state[principal_key],
-        "진행구분": st.session_state[status_key]
+        "설정자": st.session_state.get(lender_key, ""),
+        "채권최고액": st.session_state.get(maxamt_key, ""),
+        "설정비율": st.session_state.get(ratio_key, ""),
+        "원금": st.session_state.get(principal_key, ""),
+        "진행구분": st.session_state.get(status_key, "유지")
     })
 
 # ─────────────────────────────
-# LTV 계산/결과 메모 생성/출력
+# [요청 3] 수수료 계산부 위치 이동
 # ─────────────────────────────
-
-rows = st.session_state.get("rows", 0)
-try:
-    rows = int(rows)
-except:
-    rows = 0
-
-raw_price_input = st.session_state.get("raw_price_input", "")
-total_value = parse_korean_number(raw_price_input)
-limit_senior_dict, limit_sub_dict, valid_items = {}, {}, []
-sum_dh = sum_sm = sum_maintain = sum_sub_principal = 0
-
-if rows == 0:
-    for ltv in ltv_selected:
-        limit = int(total_value * (ltv / 100) - deduction)
-        limit = (limit // 10) * 10
-        limit_senior_dict[ltv] = (limit, limit)
-else:
-    sum_dh = sum(
-        int(re.sub(r"[^\d]", "", item.get("원금", "0")) or 0)
-        for item in items if item.get("진행구분") == "대환"
-    )
-    sum_sm = sum(
-        int(re.sub(r"[^\d]", "", item.get("원금", "0")) or 0)
-        for item in items if item.get("진행구분") == "선말소"
-    )
-    sum_maintain = sum(
-        int(re.sub(r"[^\d]", "", item.get("채권최고액", "0")) or 0)
-        for item in items if item.get("진행구분") == "유지"
-    )
-    sum_sub_principal = sum(
-        int(re.sub(r"[^\d]", "", item.get("원금", "0")) or 0)
-        for item in items if item.get("진행구분") not in ["유지"]
-    )
-    valid_items = [item for item in items if any([
-        item.get("설정자", "").strip(),
-        re.sub(r"[^\d]", "", item.get("채권최고액", "") or "0") != "0",
-        re.sub(r"[^\d]", "", item.get("원금", "") or "0") != "0"
-    ])]
-    def calculate_ltv(total_value, deduction, principal_sum, maintain_maxamt_sum, ltv, is_senior=True):
-        if is_senior:
-            limit = int(total_value * (ltv / 100) - deduction)
-            available = int(limit - principal_sum)
-        else:
-            limit = int(total_value * (ltv / 100) - maintain_maxamt_sum - deduction)
-            available = int(limit - principal_sum)
-        limit = (limit // 10) * 10
-        available = (available // 10) * 10
-        return limit, available
-    for ltv in ltv_selected:
-        if sum_maintain > 0:
-            limit_sub_dict[ltv] = calculate_ltv(total_value, deduction, sum_sub_principal, sum_maintain, ltv, is_senior=False)
-        else:
-            limit_senior_dict[ltv] = calculate_ltv(total_value, deduction, sum_dh + sum_sm, 0, ltv, is_senior=True)
-
-# 결과 메모 자동생성
-customer_name = st.session_state.get("customer_name", "")
-address_input = st.session_state.get("address_input", "")
-area_input = st.session_state.get("area_input", "")
-type_of_price = "하안가" if floor_num and floor_num <= 2 else "일반가"
-clean_price = parse_korean_number(raw_price_input)
-formatted_price = "{:,}".format(clean_price) if clean_price else raw_price_input
-text_to_copy = f"고객명 : {customer_name}\n주소 : {address_input}\n"
-text_to_copy += f"{type_of_price} | KB시세: {formatted_price} | 전용면적 : {area_input} | 방공제 금액 : {deduction:,}만\n"
-if valid_items:
-    text_to_copy += "\n대출 항목\n"
-    for item in valid_items:
-        raw_max = re.sub(r"[^\d]", "", item.get("채권최고액", "0"))
-        max_amt = int(raw_max) if raw_max else 0
-        raw_principal = re.sub(r"[^\d]", "", item.get("원금", "0"))
-        principal_amt = int(raw_principal) if raw_principal else 0
-        text_to_copy += f"{item.get('설정자', '')} | 채권최고액: {max_amt:,} | 비율: {item.get('설정비율', '0')}% | 원금: {principal_amt:,} | {item.get('진행구분', '')}\n"
-for ltv in ltv_selected:
-    if ltv in limit_senior_dict:
-        limit, avail = limit_senior_dict[ltv]
-        text_to_copy += f"\n선순위 LTV {ltv}% {limit:,} 가용 {avail:,}"
-    if ltv in limit_sub_dict:
-        limit, avail = limit_sub_dict[ltv]
-        text_to_copy += f"\n후순위 LTV {ltv}% {limit:,} 가용 {avail:,}"
-text_to_copy += "\n진행구분별 원금 합계\n"
-if sum_dh > 0:
-    text_to_copy += f"대환: {sum_dh:,}만\n"
-if sum_sm > 0:
-    text_to_copy += f"선말소: {sum_sm:,}만\n"
-
-# 결과 텍스트를 항상 세션에 저장
-st.session_state["text_to_copy"] = text_to_copy
-st.text_area("결과 내용", height=320, key="text_to_copy")
-
-
-# ─────────────────────────────
-# 수수료 계산부
-# ─────────────────────────────
-def parse_comma_number(text):
-    try:
-        return int(re.sub(r"[^\d]", "", text))
-    except:
-        return 0
 
 col1, col2, col3, col4 = st.columns(4)
 with col1:
@@ -576,17 +474,143 @@ consult_fee = int(consult_amount * consult_rate / 100)
 bridge_fee = int(bridge_amount * bridge_rate / 100)
 total_fee = consult_fee + bridge_fee
 
-st.markdown(f"""
-#### 수수료 합계: **{total_fee:,}만원**
-- 컨설팅 수수료: {consult_fee:,}만원
-- 브릿지 수수료: {bridge_fee:,}만원
-""")
+# ─────────────────────────────
+# 📋 LTV 계산/결과 메모 생성/출력 (기존 복잡한 로직 유지)
+# ─────────────────────────────
+st.subheader("📋 결과 내용")
 
-st.markdown("---")
-st.markdown("### 💾 수동 저장")
+rows = st.session_state.get("num_loan_items", 0)
+try:
+    rows = int(rows)
+except:
+    rows = 0
+
+raw_price_input = st.session_state.get("raw_price_input", "")
+total_value = parse_korean_number(raw_price_input)
+limit_senior_dict, limit_sub_dict, valid_items = {}, {}, []
+sum_dh = sum_sm = sum_maintain = sum_sub_principal = 0
+
+if rows == 0:
+    for ltv in ltv_selected:
+        limit = int(total_value * (ltv / 100) - deduction)
+        limit = (limit // 10) * 10
+        limit_senior_dict[ltv] = (limit, limit)
+else:
+    sum_dh = sum(
+        int(re.sub(r"[^\d]", "", str(item.get("원금", "0"))) or 0)
+        for item in items if item.get("진행구분") == "대환"
+    )
+    sum_sm = sum(
+        int(re.sub(r"[^\d]", "", str(item.get("원금", "0"))) or 0)
+        for item in items if item.get("진행구분") == "선말소"
+    )
+    sum_maintain = sum(
+        int(re.sub(r"[^\d]", "", str(item.get("채권최고액", "0"))) or 0)
+        for item in items if item.get("진행구분") == "유지"
+    )
+    sum_sub_principal = sum(
+        int(re.sub(r"[^\d]", "", str(item.get("원금", "0"))) or 0)
+        for item in items if item.get("진행구분") not in ["유지"]
+    )
+    valid_items = [item for item in items if any([
+        item.get("설정자", "").strip(),
+        re.sub(r"[^\d]", "", str(item.get("채권최고액", "") or "0")) != "0",
+        re.sub(r"[^\d]", "", str(item.get("원금", "") or "0")) != "0"
+    ])]
+
+    def calculate_ltv(total_value, deduction, principal_sum, maintain_maxamt_sum, ltv, is_senior=True):
+        if is_senior:
+            limit = int(total_value * (ltv / 100) - deduction)
+            available = int(limit - principal_sum)
+        else:
+            limit = int(total_value * (ltv / 100) - maintain_maxamt_sum - deduction)
+            available = int(limit - principal_sum)
+        limit = (limit // 10) * 10
+        available = (available // 10) * 10
+        return limit, available
+        
+    for ltv in ltv_selected:
+        if sum_maintain > 0:
+            limit_sub_dict[ltv] = calculate_ltv(total_value, deduction, sum_sub_principal, sum_maintain, ltv, is_senior=False)
+        else:
+            limit_senior_dict[ltv] = calculate_ltv(total_value, deduction, sum_dh + sum_sm, 0, ltv, is_senior=True)
+
+# 결과 메모 자동생성
+customer_name = st.session_state.get("customer_name", "")
+address_input = st.session_state.get("address_input", "")
+area_input = st.session_state.get("area_input", "")
+type_of_price = "하안가" if floor_num and floor_num <= 2 else "일반가"
+clean_price = parse_korean_number(raw_price_input)
+formatted_price = "{:,}".format(clean_price) if clean_price else raw_price_input
+text_to_copy = f"고객명 : {customer_name}\n주소 : {address_input}\n"
+text_to_copy += f"{type_of_price} | KB시세: {formatted_price} | 전용면적 : {area_input} | 방공제 금액 : {deduction:,}만\n"
+if valid_items:
+    text_to_copy += "\n[대출 항목]\n"
+    for item in valid_items:
+        raw_max = re.sub(r"[^\d]", "", str(item.get("채권최고액", "0")))
+        max_amt = int(raw_max) if raw_max else 0
+        raw_principal = re.sub(r"[^\d]", "", str(item.get("원금", "0")))
+        principal_amt = int(raw_principal) if raw_principal else 0
+        text_to_copy += f"{item.get('설정자', '')} | 채권최고액: {max_amt:,} | 원금: {principal_amt:,} | {item.get('진행구분', '')}\n"
+
+for ltv in ltv_selected:
+    if ltv in limit_senior_dict:
+        limit, avail = limit_senior_dict[ltv]
+        text_to_copy += f"\n[선순위 LTV {ltv}%] 한도: {limit:,}만 | 가용: {avail:,}만"
+    if ltv in limit_sub_dict:
+        limit, avail = limit_sub_dict[ltv]
+        text_to_copy += f"\n[후순위 LTV {ltv}%] 한도: {limit:,}만 | 가용: {avail:,}만"
+
+text_to_copy += "\n[진행구분별 원금 합계]\n"
+if sum_dh > 0: text_to_copy += f"대환: {sum_dh:,}만\n"
+if sum_sm > 0: text_to_copy += f"선말소: {sum_sm:,}만\n"
+
+# [수정] 수수료 정보를 결과 메모 하단에 상세하게 추가합니다.
+text_to_copy += f"""
+
+[수수료 정보]
+컨설팅: {consult_amount:,}만 (수수료: {consult_fee:,}만)
+브릿지: {bridge_amount:,}만 (수수료: {bridge_fee:,}만)
+총 합계: {total_fee:,}만
+"""
+
+st.text_area("복사할 내용", text_to_copy, height=400, key="text_to_copy")
+
 
 # ─────────────────────────────
-# 저장 버튼 (최종 결과만 저장)
+# 💾 저장 / 수정 버튼
 # ─────────────────────────────
-if st.button("📌 이 입력 내용 저장하기", key="manual_save_button"):
-    save_user_input()
+
+st.subheader("💾 저장 / 수정")
+col1, col2 = st.columns(2)
+with col1:
+    if st.button("💾 신규 고객으로 저장", use_container_width=True):
+        create_new_customer()
+with col2:
+    if st.button("🔄 기존 고객 정보 수정", use_container_width=True, type="primary"):
+        update_existing_customer()
+
+
+# ─────────────────────────────
+# 🗂️ 고객 이력 관리 (최종 버전)
+# ─────────────────────────────
+
+if "notion_customers" not in st.session_state:
+    fetch_all_notion_customers()
+
+selected_customer = st.selectbox(
+    "고객 선택", [""] + get_customer_options(), key="load_customer_select", label_visibility="collapsed"
+)
+cols = st.columns(3)
+with cols[0]:
+    if selected_customer:
+        if st.button("🔄 불러오기", use_container_width=True):
+            load_customer_input(selected_customer)
+            st.rerun()
+with cols[1]:
+    if selected_customer:
+        if st.button("🗑️ 삭제", type="secondary", use_container_width=True):
+            delete_customer_from_notion(selected_customer)
+            st.rerun()
+with cols[2]:
+    st.button("✨ 전체 초기화", on_click=reset_app_state, use_container_width=True)

@@ -22,30 +22,17 @@ st.set_page_config(
     page_icon="📊",
     layout="wide",
 )
+
 # ------------------------------
 # 🔹 함수 정의
 # ------------------------------
+def reset_app_state_and_request_rerun():
+    """초기화 깃발을 세우고 새로고침을 요청하는 함수"""
+    st.session_state.reset_requested = True
+    st.rerun()
 
-def reverse_calculator_callback(i):
-    """'원금수정' 버튼 클릭 시, 역계산을 수행하고 '역계산 완료' 깃발을 세우는 함수"""
-    maxamt_key = f"maxamt_{i}"
-    ratio_key = f"ratio_{i}"
-    principal_key = f"principal_{i}"
-
-    try:
-        pri_val = parse_comma_number(st.session_state.get(principal_key, ""))
-        rat_val = parse_comma_number(st.session_state.get(ratio_key, ""))
-
-        if pri_val > 0 and rat_val > 0:
-            calculated_max = int(pri_val * rat_val / 100)
-            st.session_state[maxamt_key] = f"{calculated_max:,}"
-            # 역계산이 실행되었다는 깃발을 세웁니다.
-            st.session_state[f"just_reversed_{i}"] = True
-    except (ValueError, ZeroDivisionError):
-        pass
-
-def reset_app_state():
-    """앱 상태를 초기화하는 전용 콜백 함수"""
+def perform_reset():
+    """실제 초기화 로직을 수행하는 함수"""
     if "uploaded_pdf_path" in st.session_state and os.path.exists(st.session_state.uploaded_pdf_path):
         os.remove(st.session_state.uploaded_pdf_path)
 
@@ -69,7 +56,15 @@ def reset_app_state():
                 del st.session_state[key]
 
     st.session_state.num_loan_items = 1
-    st.session_state.reset_requested = True
+    # 초기화가 완료되었으므로 깃발을 내립니다.
+    if "reset_requested" in st.session_state:
+        del st.session_state.reset_requested
+
+# ... (다른 모든 helper 함수들은 이전과 동일하게 여기에 위치)
+
+# [핵심 수정] 초기화가 요청되었는지 스크립트 초반에 확인하고 실행
+if st.session_state.get("reset_requested", False):
+    perform_reset()
 
 
 # ------------------------------
@@ -587,15 +582,17 @@ text_to_copy += f"""
 st.text_area("복사할 내용", text_to_copy, height=400, key="text_to_copy")
 
 # ─────────────────────────────
-# 🗂️ 고객 이력 관리 (최종 버전)
+# 🗂️ 고객 이력 관리
 # ─────────────────────────────
-
+st.markdown("---")
 if "notion_customers" not in st.session_state:
     fetch_all_notion_customers()
 
+st.subheader("🗂️ 고객 이력 관리")
 selected_customer = st.selectbox(
     "고객 선택", [""] + get_customer_options(), key="load_customer_select", label_visibility="collapsed"
 )
+
 cols = st.columns(3)
 with cols[0]:
     if selected_customer:
@@ -608,7 +605,8 @@ with cols[1]:
             delete_customer_from_notion(selected_customer)
             st.rerun()
 with cols[2]:
-    st.button("✨ 전체 초기화", on_click=reset_app_state, use_container_width=True)
+    # [수정] 이제 버튼은 '초기화 예약' 깃발만 세우는 함수를 호출합니다.
+    st.button("✨ 전체 초기화", on_click=reset_app_state_and_request_rerun, use_container_width=True)
 
 
 # ─────────────────────────────

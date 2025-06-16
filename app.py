@@ -69,6 +69,7 @@ def reset_app_state():
                 del st.session_state[key]
 
     st.session_state.num_loan_items = 1
+    st.session_state.reset_requested = True
 
 
 # ------------------------------
@@ -218,7 +219,7 @@ if "co_owners" not in st.session_state: st.session_state["co_owners"] = []
 # 🔹 파일 업로더
 uploaded_file = st.file_uploader("📎 PDF 파일 업로드", type="pdf", key="pdf_uploader")
 
-if uploaded_file:
+if uploaded_file and not st.session_state.get("reset_requested", False):
     # PDF 처리 및 정보 추출 (기존 로직 유지)
     if "uploaded_pdf_path" not in st.session_state or st.session_state.get('uploaded_file_name') != uploaded_file.name:
         text, external_links, address, area, floor, co_owners = process_pdf(uploaded_file)
@@ -585,21 +586,6 @@ text_to_copy += f"""
 
 st.text_area("복사할 내용", text_to_copy, height=400, key="text_to_copy")
 
-
-# ─────────────────────────────
-# 💾 저장 / 수정 버튼
-# ─────────────────────────────
-
-st.subheader("💾 저장 / 수정")
-col1, col2 = st.columns(2)
-with col1:
-    if st.button("💾 신규 고객으로 저장", use_container_width=True):
-        create_new_customer()
-with col2:
-    if st.button("🔄 기존 고객 정보 수정", use_container_width=True, type="primary"):
-        update_existing_customer()
-
-
 # ─────────────────────────────
 # 🗂️ 고객 이력 관리 (최종 버전)
 # ─────────────────────────────
@@ -623,3 +609,21 @@ with cols[1]:
             st.rerun()
 with cols[2]:
     st.button("✨ 전체 초기화", on_click=reset_app_state, use_container_width=True)
+
+
+# ─────────────────────────────
+# 💾 저장 / 수정 버튼
+# ─────────────────────────────
+
+st.subheader("💾 저장 / 수정")
+col1, col2 = st.columns(2)
+with col1:
+    if st.button("💾 신규 고객으로 저장", use_container_width=True):
+        create_new_customer()
+with col2:
+    if st.button("🔄 기존 고객 정보 수정", use_container_width=True, type="primary"):
+        update_existing_customer()
+        
+if "reset_requested" in st.session_state:
+    del st.session_state["reset_requested"]
+

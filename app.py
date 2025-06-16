@@ -205,19 +205,40 @@ with cols[2]:
 st.markdown("---")
 st.subheader("기본 정보 입력")
 
-region = st.selectbox("방공제 지역", [""] + list(region_map.keys()), key="region")
-if st.session_state.get("current_region") != region:
-    st.session_state.manual_d = f"{region_map.get(region, 0):,}"
-    st.session_state.current_region = region
+# [수정] 요청하신 레이아웃으로 재정렬
+st.text_input("주소", key="address_input")
 
 col1, col2 = st.columns(2)
-with col1: st.text_input("고객명 (제목)", key="customer_name")
-with col2: st.text_input("주소", key="address_input")
+with col1:
+    region = st.selectbox("방공제 지역", [""] + list(region_map.keys()), key="region")
+    if st.session_state.get("current_region") != region:
+        st.session_state.manual_d = f"{region_map.get(region, 0):,}"
+        st.session_state.current_region = region
+with col2:
+    st.text_input("방공제 금액 (만)", key="manual_d", on_change=format_with_comma, args=("manual_d",))
 
 col1, col2 = st.columns(2)
-with col1: st.text_input("KB 시세 (만원)", key="raw_price_input", on_change=format_kb_price)
-with col2: st.text_input("방공제 금액 (만)", key="manual_d", on_change=format_with_comma, args=("manual_d",))
-st.text_input("전용면적 (㎡)", key="area_input")
+with col1:
+    st.text_input("KB 시세 (만원)", key="raw_price_input", on_change=format_kb_price)
+with col2:
+    st.text_input("전용면적 (㎡)", key="area_input")
+
+st.text_input("고객명 및 생년월일", key="customer_name")
+
+# [수정] 일반가/하안가 표시 복원
+floor_num = st.session_state.get("extracted_floor")
+if floor_num is not None:
+    if floor_num <= 2: st.markdown('<span style="color:red; font-weight:bold;">📉 하안가 적용</span>', unsafe_allow_html=True)
+    else: st.markdown('<span style="color:#007BFF; font-weight:bold;">📈 일반가 적용</span>', unsafe_allow_html=True)
+
+# [수정] KB시세/하우스머치 조회 버튼 복원
+col1, col2 = st.columns(2)
+with col1:
+    if st.button("KB 시세 조회"):
+        st.components.v1.html("<script>window.open('https://kbland.kr/map','_blank')</script>", height=0)
+with col2:
+    if st.button("하우스머치 시세조회"):
+        st.components.v1.html("<script>window.open('https://www.howsmuch.com','_blank')</script>", height=0)
 
 # ─────────────────────────────
 # 📌 LTV, 대출, 수수료 정보 (탭 UI)
@@ -331,14 +352,17 @@ if "just_loaded" in st.session_state:
 st.text_area("복사할 내용", st.session_state.get("text_to_copy", ""), height=400, key="text_to_copy")
 
 # ─────────────────────────────
-# 💾 저장 / 수정 버튼
+# 💾 저장 / 수정 및 초기화 버튼
 # ─────────────────────────────
 st.markdown("---")
-st.subheader("💾 저장 / 수정")
-col1, col2 = st.columns(2)
+st.subheader("💾 저장 / 수정 / 초기화")
+col1, col2, col3 = st.columns(3)
 with col1:
     if st.button("💾 신규 고객으로 저장", use_container_width=True):
         create_new_customer()
 with col2:
     if st.button("🔄 기존 고객 정보 수정", use_container_width=True, type="primary"):
         update_existing_customer()
+with col3:
+    # [수정] 전체 초기화 버튼을 페이지 하단으로 이동
+    st.button("✨ 전체 초기화", on_click=reset_app_state, use_container_width=True)

@@ -62,15 +62,15 @@ def parse_comma_number(text):
     except:
         return 0
 
-# ✅ 콤마 + 만단위 절삭 함수 (100단위 절삭)
+# ✅ 쉼표 추가 기능만 하도록 수정된 함수
 
 def format_with_comma(key):
     raw = st.session_state.get(key, "")
     clean = re.sub(r"[^\d]", "", str(raw))
     if clean.isdigit():
         val = int(clean)
-        truncated = (val // 100) * 100
-        st.session_state[key] = f"{truncated:,}"
+        # 100단위 절삭 로직을 제거하고, 쉼표만 추가합니다.
+        st.session_state[key] = f"{val:,}"
     else:
         st.session_state[key] = ""
 

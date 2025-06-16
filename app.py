@@ -535,6 +535,7 @@ else:
         else:
             limit_senior_dict[ltv] = calculate_ltv(total_value, deduction, sum_dh + sum_sm, 0, ltv, is_senior=True)
 
+# --- [수정된 결과 메모 생성 코드] ---
 # 결과 메모 자동생성
 customer_name = st.session_state.get("customer_name", "")
 address_input = st.session_state.get("address_input", "")
@@ -567,7 +568,6 @@ if sum_sm > 0: text_to_copy += f"선말소: {sum_sm:,}만\n"
 
 # [수정] 수수료 정보를 결과 메모 하단에 상세하게 추가합니다.
 text_to_copy += f"""
-
 [수수료 정보]
 컨설팅: {consult_amount:,}만 (수수료: {consult_fee:,}만)
 브릿지: {bridge_amount:,}만 (수수료: {bridge_fee:,}만)
@@ -575,7 +575,6 @@ text_to_copy += f"""
 """
 
 st.text_area("복사할 내용", text_to_copy, height=400, key="text_to_copy")
-
 
 # ─────────────────────────────
 # 💾 저장 / 수정 버튼
@@ -590,7 +589,6 @@ with col2:
     if st.button("🔄 기존 고객 정보 수정", use_container_width=True, type="primary"):
         update_existing_customer()
 
-
 # ─────────────────────────────
 # 🗂️ 고객 이력 관리 (최종 버전)
 # ─────────────────────────────
@@ -598,15 +596,19 @@ with col2:
 if "notion_customers" not in st.session_state:
     fetch_all_notion_customers()
 
+# 1. 고객을 선택하는 드롭다운 메뉴
 selected_customer = st.selectbox(
     "고객 선택", [""] + get_customer_options(), key="load_customer_select", label_visibility="collapsed"
 )
 cols = st.columns(3)
 with cols[0]:
+    # 2. 고객이 선택되었을 때만 "불러오기" 버튼이 보임
     if selected_customer:
         if st.button("🔄 불러오기", use_container_width=True):
-            load_customer_input(selected_customer)
+            load_customer_input(selected_customer) # 3. 버튼 클릭 시 데이터 로딩 함수 호출
             st.rerun()
+# ... (삭제, 초기화 버튼)
+
 with cols[1]:
     if selected_customer:
         if st.button("🗑️ 삭제", type="secondary", use_container_width=True):

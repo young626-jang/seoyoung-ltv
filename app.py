@@ -345,7 +345,7 @@ st.session_state["ltv_selected"] = ltv_selected
 # ─────────────────────────────
 # 대출 항목 입력 (최종 수정본)
 # ─────────────────────────────
-st.markdown("---")
+
 st.subheader("대출 항목 입력")
 
 def bidirectional_loan_calculator(maxamt_key, ratio_key, principal_key):
@@ -384,7 +384,7 @@ def set_active_widget(key):
 
 st.number_input(
     "대출 항목 개수",
-    min_value=1,
+    min_value=0,
     key="num_loan_items"
 )
 

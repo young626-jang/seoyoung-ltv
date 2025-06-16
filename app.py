@@ -26,13 +26,8 @@ st.set_page_config(
 # ------------------------------
 # 🔹 함수 정의
 # ------------------------------
-def reset_app_state_and_request_rerun():
-    """초기화 깃발을 세우고 새로고침을 요청하는 함수"""
-    st.session_state.reset_requested = True
-    st.rerun()
-
-def perform_reset():
-    """실제 초기화 로직을 수행하는 함수"""
+def reset_app_state():
+    """앱 상태를 초기화하는 전용 콜백 함수"""
     if "uploaded_pdf_path" in st.session_state and os.path.exists(st.session_state.uploaded_pdf_path):
         os.remove(st.session_state.uploaded_pdf_path)
 
@@ -50,22 +45,12 @@ def perform_reset():
     
     num_items = st.session_state.get("num_loan_items", 1)
     for i in range(num_items):
-        for prefix in ["lender", "maxamt", "ratio", "principal", "status", "prev_max", "prev_pri"]:
+        for prefix in ["lender", "maxamt", "ratio", "principal", "status", "prev_max", "prev_pri", "prev_rat"]:
             key = f"{prefix}_{i}"
             if key in st.session_state:
                 del st.session_state[key]
 
     st.session_state.num_loan_items = 1
-    # 초기화가 완료되었으므로 깃발을 내립니다.
-    if "reset_requested" in st.session_state:
-        del st.session_state.reset_requested
-
-# ... (다른 모든 helper 함수들은 이전과 동일하게 여기에 위치)
-
-# [핵심 수정] 초기화가 요청되었는지 스크립트 초반에 확인하고 실행
-if st.session_state.get("reset_requested", False):
-    perform_reset()
-
 
 # ------------------------------
 # 유틸 함수
@@ -172,6 +157,19 @@ def extract_all_names_and_births(text):
                     result.append((name, birth))
     return result
 
+
+# ─────────────────────────────
+# 🔹 세션 초기화
+# ─────────────────────────────
+
+if "num_loan_items" not in st.session_state:
+    st.session_state.num_loan_items = 1
+
+for key in ["extracted_address", "extracted_area", "raw_price", "extracted_floor"]:
+    if key not in st.session_state: st.session_state[key] = ""
+if "co_owners" not in st.session_state: st.session_state["co_owners"] = []
+
+
 # ------------------------------
 # 🔹 PDF 처리 함수
 # ------------------------------
@@ -195,17 +193,6 @@ def process_pdf(uploaded_file):
     co_owners = extract_all_names_and_births(text)
 
     return text, external_links, address, area, floor, co_owners
-
-# ─────────────────────────────
-# 🔹 세션 초기화
-# ─────────────────────────────
-
-if "num_loan_items" not in st.session_state:
-    st.session_state.num_loan_items = 1
-
-for key in ["extracted_address", "extracted_area", "raw_price", "extracted_floor"]:
-    if key not in st.session_state: st.session_state[key] = ""
-if "co_owners" not in st.session_state: st.session_state["co_owners"] = []
 
 # ─────────────────────────────
 # 📎 PDF 업로드 및 처리
@@ -267,6 +254,35 @@ if uploaded_file and not st.session_state.get("reset_requested", False):
         st.warning("📎 PDF 내부에 외부 링크가 포함되어 있습니다:")
         for uri in external_links:
             st.code(uri)
+
+
+# ─────────────────────────────
+# 🗂️ 고객 이력 관리
+# ─────────────────────────────
+st.markdown("---")
+if "notion_customers" not in st.session_state:
+    fetch_all_notion_customers()
+
+st.subheader("🗂️ 고객 이력 관리")
+selected_customer = st.selectbox(
+    "고객 선택", [""] + get_customer_options(), key="load_customer_select", label_visibility="collapsed"
+)
+
+cols = st.columns(3)
+with cols[0]:
+    if selected_customer:
+        if st.button("🔄 불러오기", use_container_width=True):
+            load_customer_input(selected_customer)
+            st.rerun()
+with cols[1]:
+    if selected_customer:
+        if st.button("🗑️ 삭제", type="secondary", use_container_width=True):
+            delete_customer_from_notion(selected_customer)
+            st.rerun()
+with cols[2]:
+    st.button("✨ 전체 초기화", on_click=reset_app_state, use_container_width=True)
+
+
 
 # ─────────────────────────────
 # 📄 기본 정보 입력 (수정된 버전)
@@ -540,7 +556,10 @@ else:
         else:
             limit_senior_dict[ltv] = calculate_ltv(total_value, deduction, sum_dh + sum_sm, 0, ltv, is_senior=True)
 
-# 결과 메모 자동생성
+# ─────────────────────────────
+# 📋 결과 생성 및 표시
+# ─────────────────────────────
+
 customer_name = st.session_state.get("customer_name", "")
 address_input = st.session_state.get("address_input", "")
 area_input = st.session_state.get("area_input", "")
@@ -570,44 +589,21 @@ text_to_copy += "\n[진행구분별 원금 합계]\n"
 if sum_dh > 0: text_to_copy += f"대환: {sum_dh:,}만\n"
 if sum_sm > 0: text_to_copy += f"선말소: {sum_sm:,}만\n"
 
-# [수정] 수수료 정보를 결과 메모 하단에 상세하게 추가합니다.
-text_to_copy += f"""
+text_to_copy += "\n[수수료 정보]\n"
 
-[수수료 정보]
-컨설팅: {consult_amount:,}만 (수수료: {consult_fee:,}만)
-브릿지: {bridge_amount:,}만 (수수료: {bridge_fee:,}만)
-총 합계: {total_fee:,}만
-"""
+# 컨설팅 금액이 0보다 클 때만 컨설팅 수수료 라인을 추가
+if consult_amount > 0:
+    text_to_copy += f"- 컨설팅: {consult_amount:,}만 (수수료: {consult_fee:,}만)\n"
+
+# 브릿지 금액이 0보다 클 때만 브릿지 수수료 라인을 추가
+if bridge_amount > 0:
+    text_to_copy += f"- 브릿지: {bridge_amount:,}만 (수수료: {bridge_fee:,}만)\n"
+    
+# 총 수수료가 0보다 클 때만 총 합계 라인을 추가
+if total_fee > 0:
+    text_to_copy += f"- 총 합계: {total_fee:,}만\n"
 
 st.text_area("복사할 내용", text_to_copy, height=400, key="text_to_copy")
-
-# ─────────────────────────────
-# 🗂️ 고객 이력 관리
-# ─────────────────────────────
-st.markdown("---")
-if "notion_customers" not in st.session_state:
-    fetch_all_notion_customers()
-
-st.subheader("🗂️ 고객 이력 관리")
-selected_customer = st.selectbox(
-    "고객 선택", [""] + get_customer_options(), key="load_customer_select", label_visibility="collapsed"
-)
-
-cols = st.columns(3)
-with cols[0]:
-    if selected_customer:
-        if st.button("🔄 불러오기", use_container_width=True):
-            load_customer_input(selected_customer)
-            st.rerun()
-with cols[1]:
-    if selected_customer:
-        if st.button("🗑️ 삭제", type="secondary", use_container_width=True):
-            delete_customer_from_notion(selected_customer)
-            st.rerun()
-with cols[2]:
-    # [수정] 이제 버튼은 '초기화 예약' 깃발만 세우는 함수를 호출합니다.
-    st.button("✨ 전체 초기화", on_click=reset_app_state_and_request_rerun, use_container_width=True)
-
 
 # ─────────────────────────────
 # 💾 저장 / 수정 버튼

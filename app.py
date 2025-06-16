@@ -197,7 +197,8 @@ with cols[1]:
             delete_customer_from_notion(selected_customer)
             st.rerun()
 with cols[2]:
-    st.button("✨ 전체 초기화", on_click=reset_app_state, use_container_width=True)
+    # [수정] 고유 key 추가하여 오류 해결
+    st.button("✨ 전체 초기화", on_click=reset_app_state, use_container_width=True, key="reset_top")
 
 # ─────────────────────────────
 # 📄 기본 정보 입력
@@ -205,7 +206,6 @@ with cols[2]:
 st.markdown("---")
 st.subheader("기본 정보 입력")
 
-# [수정] 요청하신 레이아웃으로 재정렬
 st.text_input("주소", key="address_input")
 
 col1, col2 = st.columns(2)
@@ -225,20 +225,22 @@ with col2:
 
 st.text_input("고객명 및 생년월일", key="customer_name")
 
-# [수정] 일반가/하안가 표시 복원
 floor_num = st.session_state.get("extracted_floor")
 if floor_num is not None:
     if floor_num <= 2: st.markdown('<span style="color:red; font-weight:bold;">📉 하안가 적용</span>', unsafe_allow_html=True)
     else: st.markdown('<span style="color:#007BFF; font-weight:bold;">📈 일반가 적용</span>', unsafe_allow_html=True)
 
-# [수정] KB시세/하우스머치 조회 버튼 복원
-col1, col2 = st.columns(2)
+# [수정] 3개의 컬럼으로 변경하고 인터넷등기소 버튼 추가
+col1, col2, col3 = st.columns(3)
 with col1:
     if st.button("KB 시세 조회"):
         st.components.v1.html("<script>window.open('https://kbland.kr/map','_blank')</script>", height=0)
 with col2:
     if st.button("하우스머치 시세조회"):
         st.components.v1.html("<script>window.open('https://www.howsmuch.com','_blank')</script>", height=0)
+with col3:
+    if st.button("인터넷등기소 바로가기"):
+        st.components.v1.html("<script>window.open('http://www.iros.go.kr','_blank')</script>", height=0)
 
 # ─────────────────────────────
 # 📌 LTV, 대출, 수수료 정보 (탭 UI)
@@ -255,64 +257,51 @@ with tab1:
 with tab2:
     st.number_input("대출 항목 개수", min_value=1, key="num_loan_items")
 
-items = []
-for i in range(st.session_state.get("num_loan_items", 1)):
-    lender_key, maxamt_key, ratio_key, principal_key, status_key = f"lender_{i}", f"maxamt_{i}", f"ratio_{i}", f"principal_{i}", f"status_{i}"
+    items = []
+    for i in range(st.session_state.get("num_loan_items", 1)):
+        lender_key, maxamt_key, ratio_key, principal_key, status_key = f"lender_{i}", f"maxamt_{i}", f"ratio_{i}", f"principal_{i}", f"status_{i}"
 
-    # --- 양방향 계산 로직 ---
+        max_val = parse_comma_number(st.session_state.get(maxamt_key, ""))
+        pri_val = parse_comma_number(st.session_state.get(principal_key, ""))
+        rat_val = parse_comma_number(st.session_state.get(ratio_key, ""))
+        prev_max_val = st.session_state.get(f"prev_max_{i}", None)
+        prev_pri_val = st.session_state.get(f"prev_pri_{i}", None)
+        prev_rat_val = st.session_state.get(f"prev_rat_{i}", None)
+        maxamt_to_display = st.session_state.get(maxamt_key, "")
+        principal_to_display = st.session_state.get(principal_key, "")
 
-    # 1. 현재 입력된 값과 비율을 숫자로 변환
-    max_val = parse_comma_number(st.session_state.get(maxamt_key, ""))
-    pri_val = parse_comma_number(st.session_state.get(principal_key, ""))
-    rat_val = parse_comma_number(st.session_state.get(ratio_key, ""))
+        try:
+            if rat_val > 0:
+                if pri_val != prev_pri_val:
+                    maxamt_to_display = f"{int(pri_val * rat_val / 100):,}"
+                elif max_val != prev_max_val or rat_val != prev_rat_val:
+                    principal_to_display = f"{int(max_val * 100 / rat_val):,}"
+        except (ValueError, ZeroDivisionError):
+            pass
 
-    # 2. '직전 실행' 때의 값을 불러오기
-    prev_max_val = st.session_state.get(f"prev_max_{i}", None)
-    prev_pri_val = st.session_state.get(f"prev_pri_{i}", None)
-    prev_rat_val = st.session_state.get(f"prev_rat_{i}", None)
+        cols = st.columns(5)
+        with cols[0]:
+            st.text_input(f"설정자 {i+1}", key=lender_key, label_visibility="collapsed", placeholder=f"{i+1}. 설정자")
+        with cols[1]:
+            st.text_input(f"채권최고액 {i+1}", value=maxamt_to_display, key=maxamt_key, on_change=format_with_comma, args=(maxamt_key,), label_visibility="collapsed", placeholder="채권최고액 (만)")
+        with cols[2]:
+            st.text_input(f"설정비율 {i+1}", key=ratio_key, label_visibility="collapsed", placeholder="설정비율 (%)")
+        with cols[3]:
+            st.text_input(f"원금 {i+1}", value=principal_to_display, key=principal_key, on_change=format_with_comma, args=(principal_key,), label_visibility="collapsed", placeholder="원금 (만)")
+        with cols[4]:
+            st.selectbox(f"진행구분 {i+1}", ["유지", "대환", "선말소"], key=status_key, index=0, label_visibility="collapsed")
 
-    # 3. 위젯에 표시될 기본값을 현재 상태로 설정
-    maxamt_to_display = st.session_state.get(maxamt_key, "")
-    principal_to_display = st.session_state.get(principal_key, "")
+        st.session_state[f"prev_max_{i}"] = parse_comma_number(maxamt_to_display)
+        st.session_state[f"prev_pri_{i}"] = parse_comma_number(principal_to_display)
+        st.session_state[f"prev_rat_{i}"] = parse_comma_number(st.session_state.get(ratio_key))
 
-    # 4. 새로운 계산 로직 실행
-    try:
-        if rat_val > 0:
-            # 원금이 수정되었다면, 채권최고액을 재계산 (최우선 순위)
-            if pri_val != prev_pri_val:
-                maxamt_to_display = f"{int(pri_val * rat_val / 100):,}"
-            # 그렇지 않고, 채권최고액이나 비율이 수정되었다면, 원금을 재계산
-            elif max_val != prev_max_val or rat_val != prev_rat_val:
-                principal_to_display = f"{int(max_val * 100 / rat_val):,}"
-    except (ValueError, ZeroDivisionError):
-        pass
-
-    # 5. 위젯 그리기
-    cols = st.columns(5)
-    with cols[0]:
-        st.text_input(f"설정자 {i+1}", key=lender_key, label_visibility="collapsed", placeholder=f"{i+1}. 설정자")
-    with cols[1]:
-        st.text_input(f"채권최고액 {i+1}", value=maxamt_to_display, key=maxamt_key, on_change=format_with_comma, args=(maxamt_key,), label_visibility="collapsed", placeholder="채권최고액 (만)")
-    with cols[2]:
-        st.text_input(f"설정비율 {i+1}", key=ratio_key, label_visibility="collapsed", placeholder="설정비율 (%)")
-    with cols[3]:
-        st.text_input(f"원금 {i+1}", value=principal_to_display, key=principal_key, on_change=format_with_comma, args=(principal_key,), label_visibility="collapsed", placeholder="원금 (만)")
-    with cols[4]:
-        st.selectbox(f"진행구분 {i+1}", ["유지", "대환", "선말소"], key=status_key, index=0, label_visibility="collapsed")
-
-    # 6. [수정] 다음 실행을 위해 '화면에 표시된 값'을 '직전 값'으로 저장
-    st.session_state[f"prev_max_{i}"] = parse_comma_number(maxamt_to_display)
-    st.session_state[f"prev_pri_{i}"] = parse_comma_number(principal_to_display)
-    st.session_state[f"prev_rat_{i}"] = parse_comma_number(st.session_state.get(ratio_key))
-
-    items.append({
-        "설정자": st.session_state.get(lender_key, ""),
-        "채권최고액": st.session_state.get(maxamt_key, ""),
-        "설정비율": st.session_state.get(ratio_key, ""),
-        "원금": st.session_state.get(principal_key, ""),
-        "진행구분": st.session_state.get(status_key, "유지")
-    })
-
+        items.append({
+            "설정자": st.session_state.get(lender_key, ""),
+            "채권최고액": st.session_state.get(maxamt_key, ""),
+            "설정비율": st.session_state.get(ratio_key, ""),
+            "원금": st.session_state.get(principal_key, ""),
+            "진행구분": st.session_state.get(status_key, "유지")
+        })
 
 with tab3:
     col1, col2, col3, col4 = st.columns(4)
@@ -341,9 +330,7 @@ with tab3:
 st.markdown("---")
 st.subheader("📋 결과 내용")
 
-# [수정] 불러오기 직후에는 메모를 재성성하지 않도록 '깃발'을 확인
 if not st.session_state.get("just_loaded", False):
-    # ... (결과 메모 생성 로직)
     pass
 
 if "just_loaded" in st.session_state:
@@ -364,5 +351,5 @@ with col2:
     if st.button("🔄 기존 고객 정보 수정", use_container_width=True, type="primary"):
         update_existing_customer()
 with col3:
-    # [수정] 전체 초기화 버튼을 페이지 하단으로 이동
-    st.button("✨ 전체 초기화", on_click=reset_app_state, use_container_width=True)
+    # [수정] 고유 key 추가하여 오류 해결
+    st.button("✨ 전체 초기화", on_click=reset_app_state, use_container_width=True, key="reset_bottom")

@@ -27,7 +27,7 @@ st.set_page_config(
 # ------------------------------
 
 def reverse_calculator_callback(i):
-    """'원금수정' 버튼을 눌렀을 때 실행되는 역계산 콜백 함수"""
+    """'원금수정' 버튼 클릭 시, 역계산을 수행하고 '역계산 완료' 깃발을 세우는 함수"""
     maxamt_key = f"maxamt_{i}"
     ratio_key = f"ratio_{i}"
     principal_key = f"principal_{i}"
@@ -39,8 +39,10 @@ def reverse_calculator_callback(i):
         if pri_val > 0 and rat_val > 0:
             calculated_max = int(pri_val * rat_val / 100)
             st.session_state[maxamt_key] = f"{calculated_max:,}"
+            # 역계산이 실행되었다는 깃발을 세웁니다.
+            st.session_state[f"just_reversed_{i}"] = True
     except (ValueError, ZeroDivisionError):
-        pass # 오류 발생 시 아무것도 하지 않음
+        pass
 
 def reset_app_state():
     """앱 상태를 초기화하는 전용 콜백 함수"""
@@ -409,22 +411,35 @@ items = []
 for i in range(st.session_state.get("num_loan_items", 1)):
     lender_key, maxamt_key, ratio_key, principal_key, status_key = f"lender_{i}", f"maxamt_{i}", f"ratio_{i}", f"principal_{i}", f"status_{i}"
 
-    # --- 자동 정계산 로직 ---
-    # 채권최고액과 비율이 입력되었고, 원금 칸이 비어있을 때만 자동으로 원금을 계산합니다.
+    # --- [최종 수정] 엑셀처럼 작동하는 양방향 계산 로직 ---
+
+    # 1. '직전 실행' 때의 값을 불러옵니다.
+    prev_max_val = st.session_state.get(f"prev_max_{i}", 0)
+    prev_pri_val = st.session_state.get(f"prev_pri_{i}", 0)
+    prev_rat_val = st.session_state.get(f"prev_rat_{i}", 0)
+
+    # 2. 현재 입력된 값을 숫자로 변환합니다.
     max_val = parse_comma_number(st.session_state.get(maxamt_key, ""))
+    pri_val = parse_comma_number(st.session_state.get(principal_key, ""))
     rat_val = parse_comma_number(st.session_state.get(ratio_key, ""))
-    # 원금 칸이 비어있는지 확인하기 위해 .get()을 직접 사용합니다.
-    principal_input_value = st.session_state.get(principal_key, "")
 
-    if max_val > 0 and rat_val > 0 and not principal_input_value:
-        try:
-            calculated_pri = int(max_val * 100 / rat_val)
-            st.session_state[principal_key] = f"{calculated_pri:,}"
-        except (ValueError, ZeroDivisionError):
-            pass
+    # 3. 계산 로직 실행: 마지막으로 수정한 값을 기준으로 다른 값을 계산합니다.
+    try:
+        # 규칙 1: 원금이 수정되었다면 (최우선), 채권최고액을 재계산
+        if pri_val != prev_pri_val:
+            if rat_val > 0:
+                new_max = f"{int(pri_val * rat_val / 100):,}"
+                st.session_state[maxamt_key] = new_max
+        # 규칙 2: 원금은 그대로인데, 채권최고액이나 비율이 수정되었다면, 원금을 재계산
+        elif max_val != prev_max_val or rat_val != prev_rat_val:
+            if max_val > 0 and rat_val > 0:
+                new_pri = f"{int(max_val * 100 / rat_val):,}"
+                st.session_state[principal_key] = new_pri
+    except (ValueError, ZeroDivisionError):
+        pass
 
-    # --- 위젯 그리기 ---
-    cols = st.columns([3, 3, 2, 3, 2])
+    # 4. 위젯을 그립니다.
+    cols = st.columns(5)
     with cols[0]:
         st.text_input(f"설정자 {i+1}", key=lender_key, label_visibility="collapsed", placeholder=f"{i+1}. 설정자")
     with cols[1]:
@@ -434,10 +449,12 @@ for i in range(st.session_state.get("num_loan_items", 1)):
     with cols[3]:
         st.text_input(f"원금 {i+1}", key=principal_key, on_change=format_with_comma, args=(principal_key,), label_visibility="collapsed", placeholder="원금 (만)")
     with cols[4]:
-        st.button("원금수정", key=f"reverse_calc_{i}", on_click=reverse_calculator_callback, args=(i,), use_container_width=True)
+        st.selectbox(f"진행구분 {i+1}", ["유지", "대환", "선말소"], key=status_key, index=0, label_visibility="collapsed")
 
-    st.selectbox(f"진행구분 {i+1}", ["유지", "대환", "선말소"], key=status_key, label_visibility="collapsed")
-    st.markdown("---") # 각 항목 구분을 위한 라인
+    # 5. 다음 실행을 위해 현재 값을 '직전 값'으로 저장합니다.
+    st.session_state[f"prev_max_{i}"] = parse_comma_number(st.session_state.get(maxamt_key))
+    st.session_state[f"prev_pri_{i}"] = parse_comma_number(st.session_state.get(principal_key))
+    st.session_state[f"prev_rat_{i}"] = parse_comma_number(st.session_state.get(ratio_key))
     
     items.append({
         "설정자": st.session_state.get(lender_key, ""),
@@ -446,7 +463,6 @@ for i in range(st.session_state.get("num_loan_items", 1)):
         "원금": st.session_state.get(principal_key, ""),
         "진행구분": st.session_state.get(status_key, "유지")
     })
-
 # ─────────────────────────────
 # [요청 3] 수수료 계산부 위치 이동
 # ─────────────────────────────

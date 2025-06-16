@@ -25,6 +25,23 @@ st.set_page_config(
 # ------------------------------
 # 🔹 함수 정의
 # ------------------------------
+
+def reverse_calculator_callback(i):
+    """'원금수정' 버튼을 눌렀을 때 실행되는 역계산 콜백 함수"""
+    maxamt_key = f"maxamt_{i}"
+    ratio_key = f"ratio_{i}"
+    principal_key = f"principal_{i}"
+
+    try:
+        pri_val = parse_comma_number(st.session_state.get(principal_key, ""))
+        rat_val = parse_comma_number(st.session_state.get(ratio_key, ""))
+
+        if pri_val > 0 and rat_val > 0:
+            calculated_max = int(pri_val * rat_val / 100)
+            st.session_state[maxamt_key] = f"{calculated_max:,}"
+    except (ValueError, ZeroDivisionError):
+        pass # 오류 발생 시 아무것도 하지 않음
+
 def reset_app_state():
     """앱 상태를 초기화하는 전용 콜백 함수"""
     if "uploaded_pdf_path" in st.session_state and os.path.exists(st.session_state.uploaded_pdf_path):
@@ -392,60 +409,36 @@ items = []
 for i in range(st.session_state.get("num_loan_items", 1)):
     lender_key, maxamt_key, ratio_key, principal_key, status_key = f"lender_{i}", f"maxamt_{i}", f"ratio_{i}", f"principal_{i}", f"status_{i}"
 
-    # --- [최종 수정] 양방향 자동 계산 로직 ---
-
-    # 1. 현재 입력된 값과 비율을 숫자로 변환합니다.
+    # --- 자동 정계산 로직 ---
+    # 채권최고액과 비율이 입력되었고, 원금 칸이 비어있을 때만 자동으로 원금을 계산합니다.
     max_val = parse_comma_number(st.session_state.get(maxamt_key, ""))
-    pri_val = parse_comma_number(st.session_state.get(principal_key, ""))
     rat_val = parse_comma_number(st.session_state.get(ratio_key, ""))
+    # 원금 칸이 비어있는지 확인하기 위해 .get()을 직접 사용합니다.
+    principal_input_value = st.session_state.get(principal_key, "")
 
-    # 2. '직전 실행' 때의 값을 불러옵니다.
-    prev_max_val = st.session_state.get(f"prev_max_{i}", None)
-    prev_pri_val = st.session_state.get(f"prev_pri_{i}", None)
+    if max_val > 0 and rat_val > 0 and not principal_input_value:
+        try:
+            calculated_pri = int(max_val * 100 / rat_val)
+            st.session_state[principal_key] = f"{calculated_pri:,}"
+        except (ValueError, ZeroDivisionError):
+            pass
 
-    # 3. 위젯에 표시될 기본값을 현재 상태로 설정합니다.
-    maxamt_to_display = st.session_state.get(maxamt_key, "")
-    principal_to_display = st.session_state.get(principal_key, "")
-
-    # 4. 양방향 계산 실행 (로직 개선)
-    try:
-        if rat_val > 0:
-            # Case 1: 초기 계산 (한쪽이 비어있을 때)
-            if max_val > 0 and pri_val == 0:
-                calculated_pri = int(max_val * 100 / rat_val)
-                principal_to_display = f"{calculated_pri:,}"
-            elif pri_val > 0 and max_val == 0:
-                calculated_max = int(pri_val * rat_val / 100)
-                maxamt_to_display = f"{calculated_max:,}"
-            
-            # Case 2: 수정 시 재계산 (양쪽 모두 값이 있을 때)
-            elif max_val > 0 and pri_val > 0:
-                if max_val != prev_max_val: # 채권최고액이 수정되었으면
-                    calculated_pri = int(max_val * 100 / rat_val)
-                    principal_to_display = f"{calculated_pri:,}"
-                elif pri_val != prev_pri_val: # 원금이 수정되었으면
-                    calculated_max = int(pri_val * rat_val / 100)
-                    maxamt_to_display = f"{calculated_max:,}"
-    except (ValueError, ZeroDivisionError):
-        pass
-
-    # 5. 위젯을 그립니다.
-    cols = st.columns(5)
+    # --- 위젯 그리기 ---
+    cols = st.columns([3, 3, 2, 3, 2])
     with cols[0]:
         st.text_input(f"설정자 {i+1}", key=lender_key, label_visibility="collapsed", placeholder=f"{i+1}. 설정자")
     with cols[1]:
-        st.text_input(f"채권최고액 {i+1}", value=maxamt_to_display, key=maxamt_key, on_change=format_with_comma, args=(maxamt_key,), label_visibility="collapsed", placeholder="채권최고액 (만)")
+        st.text_input(f"채권최고액 {i+1}", key=maxamt_key, on_change=format_with_comma, args=(maxamt_key,), label_visibility="collapsed", placeholder="채권최고액 (만)")
     with cols[2]:
         st.text_input(f"설정비율 {i+1}", key=ratio_key, label_visibility="collapsed", placeholder="설정비율 (%)")
     with cols[3]:
-        st.text_input(f"원금 {i+1}", value=principal_to_display, key=principal_key, on_change=format_with_comma, args=(principal_key,), label_visibility="collapsed", placeholder="원금 (만)")
+        st.text_input(f"원금 {i+1}", key=principal_key, on_change=format_with_comma, args=(principal_key,), label_visibility="collapsed", placeholder="원금 (만)")
     with cols[4]:
-        st.selectbox(f"진행구분 {i+1}", ["유지", "대환", "선말소"], key=status_key, index=0, label_visibility="collapsed")
+        st.button("원금수정", key=f"reverse_calc_{i}", on_click=reverse_calculator_callback, args=(i,), use_container_width=True)
 
-    # 6. 다음 실행을 위해 '화면에 표시된 값'을 '직전 값'으로 저장합니다.
-    st.session_state[f"prev_max_{i}"] = parse_comma_number(maxamt_to_display)
-    st.session_state[f"prev_pri_{i}"] = parse_comma_number(principal_to_display)
-
+    st.selectbox(f"진행구분 {i+1}", ["유지", "대환", "선말소"], key=status_key, label_visibility="collapsed")
+    st.markdown("---") # 각 항목 구분을 위한 라인
+    
     items.append({
         "설정자": st.session_state.get(lender_key, ""),
         "채권최고액": st.session_state.get(maxamt_key, ""),

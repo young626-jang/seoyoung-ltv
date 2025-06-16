@@ -253,6 +253,35 @@ if uploaded_file:
         for uri in external_links:
             st.code(uri)
 
+
+# ─────────────────────────────
+# 🗂️ 고객 이력 관리 (최종 버전)
+# ─────────────────────────────
+
+if "notion_customers" not in st.session_state:
+    fetch_all_notion_customers()
+
+# 1. 고객을 선택하는 드롭다운 메뉴
+selected_customer = st.selectbox(
+    "고객 선택", [""] + get_customer_options(), key="load_customer_select", label_visibility="collapsed"
+)
+cols = st.columns(3)
+with cols[0]:
+    # 2. 고객이 선택되었을 때만 "불러오기" 버튼이 보임
+    if selected_customer:
+        if st.button("🔄 불러오기", use_container_width=True):
+            load_customer_input(selected_customer) # 3. 버튼 클릭 시 데이터 로딩 함수 호출
+            st.rerun()
+# ... (삭제, 초기화 버튼)
+
+with cols[1]:
+    if selected_customer:
+        if st.button("🗑️ 삭제", type="secondary", use_container_width=True):
+            delete_customer_from_notion(selected_customer)
+            st.rerun()
+with cols[2]:
+    st.button("✨ 전체 초기화", on_click=reset_app_state, use_container_width=True)
+    
 # ─────────────────────────────
 # 📄 기본 정보 입력 (수정된 버전)
 # ─────────────────────────────
@@ -589,30 +618,3 @@ with col2:
     if st.button("🔄 기존 고객 정보 수정", use_container_width=True, type="primary"):
         update_existing_customer()
 
-# ─────────────────────────────
-# 🗂️ 고객 이력 관리 (최종 버전)
-# ─────────────────────────────
-
-if "notion_customers" not in st.session_state:
-    fetch_all_notion_customers()
-
-# 1. 고객을 선택하는 드롭다운 메뉴
-selected_customer = st.selectbox(
-    "고객 선택", [""] + get_customer_options(), key="load_customer_select", label_visibility="collapsed"
-)
-cols = st.columns(3)
-with cols[0]:
-    # 2. 고객이 선택되었을 때만 "불러오기" 버튼이 보임
-    if selected_customer:
-        if st.button("🔄 불러오기", use_container_width=True):
-            load_customer_input(selected_customer) # 3. 버튼 클릭 시 데이터 로딩 함수 호출
-            st.rerun()
-# ... (삭제, 초기화 버튼)
-
-with cols[1]:
-    if selected_customer:
-        if st.button("🗑️ 삭제", type="secondary", use_container_width=True):
-            delete_customer_from_notion(selected_customer)
-            st.rerun()
-with cols[2]:
-    st.button("✨ 전체 초기화", on_click=reset_app_state, use_container_width=True)

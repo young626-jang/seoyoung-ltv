@@ -233,10 +233,65 @@ with tab1:
 
 with tab2:
     st.number_input("대출 항목 개수", min_value=1, key="num_loan_items")
-    items = []
-    for i in range(st.session_state.get("num_loan_items", 1)):
-        # ... (이전 답변의 최종 양방향 계산 로직과 동일) ...
+
+items = []
+for i in range(st.session_state.get("num_loan_items", 1)):
+    lender_key, maxamt_key, ratio_key, principal_key, status_key = f"lender_{i}", f"maxamt_{i}", f"ratio_{i}", f"principal_{i}", f"status_{i}"
+
+    # --- 양방향 계산 로직 ---
+
+    # 1. 현재 입력된 값과 비율을 숫자로 변환
+    max_val = parse_comma_number(st.session_state.get(maxamt_key, ""))
+    pri_val = parse_comma_number(st.session_state.get(principal_key, ""))
+    rat_val = parse_comma_number(st.session_state.get(ratio_key, ""))
+
+    # 2. '직전 실행' 때의 값을 불러오기
+    prev_max_val = st.session_state.get(f"prev_max_{i}", None)
+    prev_pri_val = st.session_state.get(f"prev_pri_{i}", None)
+    prev_rat_val = st.session_state.get(f"prev_rat_{i}", None)
+
+    # 3. 위젯에 표시될 기본값을 현재 상태로 설정
+    maxamt_to_display = st.session_state.get(maxamt_key, "")
+    principal_to_display = st.session_state.get(principal_key, "")
+
+    # 4. 새로운 계산 로직 실행
+    try:
+        if rat_val > 0:
+            # 원금이 수정되었다면, 채권최고액을 재계산 (최우선 순위)
+            if pri_val != prev_pri_val:
+                maxamt_to_display = f"{int(pri_val * rat_val / 100):,}"
+            # 그렇지 않고, 채권최고액이나 비율이 수정되었다면, 원금을 재계산
+            elif max_val != prev_max_val or rat_val != prev_rat_val:
+                principal_to_display = f"{int(max_val * 100 / rat_val):,}"
+    except (ValueError, ZeroDivisionError):
         pass
+
+    # 5. 위젯 그리기
+    cols = st.columns(5)
+    with cols[0]:
+        st.text_input(f"설정자 {i+1}", key=lender_key, label_visibility="collapsed", placeholder=f"{i+1}. 설정자")
+    with cols[1]:
+        st.text_input(f"채권최고액 {i+1}", value=maxamt_to_display, key=maxamt_key, on_change=format_with_comma, args=(maxamt_key,), label_visibility="collapsed", placeholder="채권최고액 (만)")
+    with cols[2]:
+        st.text_input(f"설정비율 {i+1}", key=ratio_key, label_visibility="collapsed", placeholder="설정비율 (%)")
+    with cols[3]:
+        st.text_input(f"원금 {i+1}", value=principal_to_display, key=principal_key, on_change=format_with_comma, args=(principal_key,), label_visibility="collapsed", placeholder="원금 (만)")
+    with cols[4]:
+        st.selectbox(f"진행구분 {i+1}", ["유지", "대환", "선말소"], key=status_key, index=0, label_visibility="collapsed")
+
+    # 6. [수정] 다음 실행을 위해 '화면에 표시된 값'을 '직전 값'으로 저장
+    st.session_state[f"prev_max_{i}"] = parse_comma_number(maxamt_to_display)
+    st.session_state[f"prev_pri_{i}"] = parse_comma_number(principal_to_display)
+    st.session_state[f"prev_rat_{i}"] = parse_comma_number(st.session_state.get(ratio_key))
+
+    items.append({
+        "설정자": st.session_state.get(lender_key, ""),
+        "채권최고액": st.session_state.get(maxamt_key, ""),
+        "설정비율": st.session_state.get(ratio_key, ""),
+        "원금": st.session_state.get(principal_key, ""),
+        "진행구분": st.session_state.get(status_key, "유지")
+    })
+
 
 with tab3:
     col1, col2, col3, col4 = st.columns(4)

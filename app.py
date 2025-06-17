@@ -145,18 +145,11 @@ def extract_all_names_and_births(text):
     if start == -1:
         return []
     summary = text[start:]
-    lines = [l.strip() for l in summary.splitlines() if l.strip()]
-    result = []
-    for i in range(len(lines)):
-        if re.match(r"[가-힣]+ \(공유자\)|[가-힣]+ \(소유자\)", lines[i]):
-            name = re.match(r"([가-힣]+)", lines[i]).group(1)
-            if i + 1 < len(lines):
-                birth_match = re.match(r"(\d{6})-", lines[i + 1])
-                if birth_match:
-                    birth = birth_match.group(1)
-                    result.append((name, birth))
-    return result
-
+    # 이름 (공유자) 860101-2XXXXXX 형태를 모두 추출
+    pattern = r"([가-힣]+) \((공유자|소유자)\)[\s\n]*(\d{6})-"
+    result = re.findall(pattern, summary)
+    # [('홍길동', '공유자', '860101'), ...] → [('홍길동', '860101'), ...] 으로 변환
+    return [(name, birth) for name, _, birth in result]
 # ------------------------------
 # 🔹 PDF 처리 함수
 # ------------------------------

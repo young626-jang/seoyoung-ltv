@@ -195,46 +195,50 @@ if "co_owners" not in st.session_state: st.session_state["co_owners"] = []
 # ─────────────────────────────
 # 📎 PDF 업로드 및 처리
 # ─────────────────────────────
-
-# 🔹 파일 업로더
 uploaded_file = st.file_uploader("📎 PDF 파일 업로드", type="pdf", key="pdf_uploader")
 
-if uploaded_file:
-    # PDF 처리 및 정보 추출 (기존 로직 유지)
-    if "uploaded_pdf_path" not in st.session_state or st.session_state.get('uploaded_file_name') != uploaded_file.name:
+# [핵심 수정] 초기화가 방금 요청된 것이 아닐 경우에만 PDF 관련 로직을 실행합니다.
+if uploaded_file and not st.session_state.get("reset_requested", False):
+    
+    # 새 파일이 업로드되었을 때만 PDF를 다시 처리합니다.
+    if "pdf_processed" not in st.session_state or st.session_state.get('uploaded_file_name') != uploaded_file.name:
+        
+        # 1. PDF 분석
         text, external_links, address, area, floor, co_owners = process_pdf(uploaded_file)
-        st.session_state["extracted_address"] = address
+        
+        # 2. 추출된 모든 정보를 세션 상태에 저장
         st.session_state["address_input"] = address
         st.session_state["extracted_area"] = area
+        st.session_state["area_input"] = area # 입력칸에도 바로 반영
         st.session_state["extracted_floor"] = floor
         st.session_state["co_owners"] = co_owners
+        
+        # 3. 공동소유자 정보를 가공하여 고객명 필드에 저장
+        if co_owners:
+            owner_strings = [f"{name} {birth}" for name, birth in co_owners]
+            full_customer_name = ", ".join(owner_strings)
+            st.session_state["customer_name"] = full_customer_name
+        else:
+            # 소유자 정보가 없을 경우, 고객명 필드를 비워줍니다.
+            st.session_state["customer_name"] = ""
+
         st.success(f"📍 PDF에서 주소 추출: {address}")
 
-    if co_owners:
-        # 1. 찾은 모든 소유자/공유자 정보를 '이름 생년월일' 형식의 문자열 리스트로 만듭니다.
-        #    예: ['김철수 801010', '이영희 821111']
-        owner_strings = [f"{name} {birth}" for name, birth in co_owners]
-        
-        # 2. 리스트의 모든 항목을 ", "로 연결하여 하나의 문자열로 합칩니다.
-        #    예: "김철수 801010, 이영희 821111"
-        full_customer_name = ", ".join(owner_strings)
-        
-        # 3. 합쳐진 전체 이름을 세션 상태에 저장합니다.
-        st.session_state["customer_name"] = full_customer_name
-
+        # 4. 미리보기용 임시 파일 생성
         uploaded_file.seek(0)
         with tempfile.NamedTemporaryFile(delete=False, suffix=".pdf") as tmp_file:
             tmp_file.write(uploaded_file.getbuffer())
             st.session_state["uploaded_pdf_path"] = tmp_file.name
         
+        # 5. 처리 완료 상태 저장
         st.session_state['uploaded_file_name'] = uploaded_file.name
         st.session_state.page_index = 0
+        st.session_state.pdf_processed = True
+        st.rerun()
 
-    pdf_path = st.session_state["uploaded_pdf_path"]
-    doc = fitz.open(pdf_path)
-    total_pages = len(doc)
-    doc.close()
 
+    # --- PDF 미리보기 UI ---
+    
     if "page_index" not in st.session_state:
         st.session_state.page_index = 0
     page_index = st.session_state.page_index

@@ -141,21 +141,38 @@ def extract_area_floor(text):
     return area, floor
 
 def extract_all_names_and_births(text):
-    start = text.find("주요 등기사항 요약")
-    if start == -1:
+    start_index = text.find("주요 등기사항 요약")
+    if start_index == -1:
         return []
-    summary = text[start:]
-    lines = [l.strip() for l in summary.splitlines() if l.strip()]
-    result = []
-    for i in range(len(lines)):
-        if re.match(r"[가-힣]+ \(공유자\)|[가-힣]+ \(소유자\)", lines[i]):
-            name = re.match(r"([가-힣]+)", lines[i]).group(1)
-            if i + 1 < len(lines):
-                birth_match = re.match(r"(\d{6})-", lines[i + 1])
-                if birth_match:
-                    birth = birth_match.group(1)
-                    result.append((name, birth))
-    return result
+    summary_text = text[start_index:]
+    lines = summary_text.splitlines()
+    results = []
+    found_names = set() # 중복 추가를 방지하기 위한 집합
+    # 3. 각 줄을 순회하며 정보 추출
+    for i, line in enumerate(lines):
+        # 이름 패턴 (소유자 또는 공유자) 찾기
+        name_match = re.search(r"([가-힣]{2,5})\s*\(?(?:공유자|소유자)\)?", line)
+        if name_match:
+            name = name_match.group(1)
+            # 이미 찾은 이름이면 건너뛰기 (중복 방지)
+            if name in found_names:
+                continue
+            birth = None
+            # 생년월일 패턴 찾기 (현재 줄 또는 다음 줄)
+            # Case 1: 이름과 생년월일이 같은 줄에 있는 경우
+            birth_match_same_line = re.search(r"(\d{6})-\d+", line)
+            if birth_match_same_line:
+                birth = birth_match_same_line.group(1)
+            # Case 2: 이름 다음 줄에 생년월일이 있는 경우
+            elif i + 1 < len(lines):
+                birth_match_next_line = re.search(r"(\d{6})-\d+", lines[i + 1])
+                if birth_match_next_line:
+                    birth = birth_match_next_line.group(1)
+            # 이름과 생년월일을 모두 찾았다면 결과에 추가
+            if name and birth:
+                results.append((name, birth))
+                found_names.add(name) # 찾은 이름을 기록하여 중복 방지
+    return results
 
 # ------------------------------
 # 🔹 PDF 처리 함수

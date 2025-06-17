@@ -28,7 +28,7 @@ NOTION_HEADERS = {
 KEY_MAP = {
     CUSTOMER_DB_TITLE_PROPERTY_NAME: "customer_name",
     CUSTOMER_DB_ADDRESS_PROPERTY_NAME: "address_input",
-    "공동 소유자": "co_owners_text", # [추가] 공동 소유자 매핑
+    "공동 소유자": "co_owners_text",
     "방공제 지역": "region",
     "방공제 금액": "manual_d",
     "KB시세": "raw_price_input",

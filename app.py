@@ -292,13 +292,6 @@ with tab3:
     consult_fee = int(consult_amount * consult_rate / 100)
     bridge_fee = int(bridge_amount * bridge_rate / 100)
     total_fee = consult_fee + bridge_fee
-
-    st.markdown(f"""
-    - **컨설팅:** {consult_amount:,}만원 X {consult_rate}% = **{consult_fee:,}만원**
-    - **브릿지:** {bridge_amount:,}만원 X {bridge_rate}% = **{bridge_fee:,}만원**
-    - ##### 수수료 합계: **{total_fee:,}만원**
-    """)
-
 # ─────────────────────────────
 # 📋 결과 생성 및 표시
 # ─────────────────────────────
@@ -322,19 +315,19 @@ if not st.session_state.get("just_loaded", False):
     if valid_items:
         text_to_copy += "\n[대출 항목]\n"
         for item in valid_items:
-            text_to_copy += f"- {item.get('설정자', '')} | 채권최고액: {item.get('채권최고액', '0')} | 원금: {item.get('원금', '0')} | {item.get('진행구분', '')}\n"
+            text_to_copy += f"{item.get('설정자', '')} | 채권최고액: {item.get('채권최고액', '0')} | 원금: {item.get('원금', '0')} | {item.get('진행구분', '')}\n"
     
     for ltv in ltv_selected:
         limit, avail = calculate_ltv(total_value, deduction, sum_sub_principal, sum_maintain, ltv)
         text_to_copy += f"\n[LTV {ltv}%] 한도: {limit:,}만 | 가용: {avail:,}만"
         
-    text_to_copy += f"\n\n[진행구분별 원금 합계]\n- 대환: {sum_dh:,}만\n- 선말소: {sum_sm:,}만\n"
+    text_to_copy += f"\n\n[진행구분별 원금 합계]\n대환: {sum_dh:,}만\n선말소: {sum_sm:,}만\n"
     
     if total_fee > 0:
         text_to_copy += f"\n[수수료 정보]\n"
-        if consult_amount > 0: text_to_copy += f"- 컨설팅: {consult_amount:,}만 (수수료: {consult_fee:,}만)\n"
-        if bridge_amount > 0: text_to_copy += f"- 브릿지: {bridge_amount:,}만 (수수료: {bridge_fee:,}만)\n"
-        text_to_copy += f"- 총 합계: {total_fee:,}만\n"
+        if consult_amount > 0: text_to_copy += f"컨설팅: {consult_amount:,}만 (수수료: {consult_fee:,}만)\n"
+        if bridge_amount > 0: text_to_copy += f"브릿지: {bridge_amount:,}만 (수수료: {bridge_fee:,}만)\n"
+        text_to_copy += f"총 합계: {total_fee:,}만\n"
     
     st.session_state["text_to_copy"] = text_to_copy
 

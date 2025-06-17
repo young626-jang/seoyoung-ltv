@@ -27,7 +27,7 @@ st.set_page_config(
 # 🔹 함수 정의
 # ------------------------------
 def reset_app_state():
-    """초기화 버튼 클릭 시 실행될 콜백 함수"""
+    """초기화 버튼 클릭 시, 다음 새로고침 때 초기화를 실행하도록 깃발을 세우는 함수"""
     st.session_state.reset_requested = True
 
 def perform_reset():
@@ -100,8 +100,11 @@ def parse_comma_number(text):
 def format_with_comma(key):
     raw = st.session_state.get(key, "")
     clean = re.sub(r"[^\d]", "", str(raw))
-    if clean.isdigit(): st.session_state[key] = f"{int(clean):,}"
-    else: st.session_state[key] = ""
+    if clean.isdigit():
+        val = int(clean)
+        st.session_state[key] = f"{val:,}"
+    else:
+        st.session_state[key] = ""
 
 def format_kb_price():
     raw = st.session_state.get("raw_price_input", "")
@@ -123,9 +126,9 @@ def parse_korean_number(text: str) -> int:
     return total
     
 def calculate_ltv(total_value, deduction, principal_sum, maintain_maxamt_sum, ltv):
-    if maintain_maxamt_sum > 0:
+    if maintain_maxamt_sum > 0: # 후순위
         limit = total_value * (ltv / 100) - maintain_maxamt_sum - deduction
-    else:
+    else: # 선순위
         limit = total_value * (ltv / 100) - deduction
     
     available = limit - principal_sum
@@ -133,7 +136,7 @@ def calculate_ltv(total_value, deduction, principal_sum, maintain_maxamt_sum, lt
     available = int(available // 10) * 10
     return limit, available
 
-# [핵심 수정] 초기화가 요청되었는지 스크립트 초반에 확인하고 실행
+# [핵심 수정] 초기화 깃발이 있는지 스크립트 초반에 확인하고, 있다면 초기화 실행
 if st.session_state.get("reset_requested", False):
     perform_reset()
 
@@ -206,7 +209,7 @@ with cols[2]:
 st.markdown("---")
 st.subheader("기본 정보 입력")
 
-st.text_input("고객명 (제목)", key="customer_name")
+st.text_input("고객명", key="customer_name")
 st.text_input("주소", key="address_input")
 
 col1, col2 = st.columns(2)
@@ -354,3 +357,7 @@ with col1:
 with col2:
     if st.button("🔄 기존 고객 정보 수정", use_container_width=True, type="primary"):
         update_existing_customer()
+
+# [핵심 수정] 스크립트 마지막에서 깃발 제거
+if "reset_requested" in st.session_state:
+    del st.session_state["reset_requested"]

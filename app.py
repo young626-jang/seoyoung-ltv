@@ -166,9 +166,6 @@ def process_pdf(uploaded_file):
 # 🔹 세션 초기화
 # ─────────────────────────────
 
-if "num_loan_items" not in st.session_state:
-    st.session_state.num_loan_items = 1
-
 for key in ["extracted_address", "extracted_area", "raw_price", "extracted_floor"]:
     if key not in st.session_state: st.session_state[key] = ""
 if "co_owners" not in st.session_state: st.session_state["co_owners"] = []
@@ -253,15 +250,11 @@ with cols[0]:
         if st.button("🔄 불러오기", use_container_width=True):
             load_customer_input(selected_customer) # 3. 버튼 클릭 시 데이터 로딩 함수 호출
             st.rerun()
-# ... (삭제, 초기화 버튼)
 
-with cols[1]:
     if selected_customer:
         if st.button("🗑️ 삭제", type="secondary", use_container_width=True):
             delete_customer_from_notion(selected_customer)
             st.rerun()
-with cols[2]:
-    st.button("✨ 전체 초기화", on_click=reset_app_state, use_container_width=True)
 
 # ─────────────────────────────
 # 📄 기본 정보 입력 (수정된 버전)

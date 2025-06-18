@@ -188,8 +188,17 @@ if uploaded_file:
         st.session_state["co_owners"] = co_owners
         st.success(f"📍 PDF에서 주소 추출: {address}")
 
-        if co_owners:
-            st.session_state["customer_name"] = f"{co_owners[0][0]} {co_owners[0][1]}"
+    if co_owners:
+        # 1. 찾은 모든 소유자/공유자 정보를 '이름 생년월일' 형식의 문자열 리스트로 만듭니다.
+        #    예: ['김철수 801010', '이영희 821111']
+        owner_strings = [f"{name} {birth}" for name, birth in co_owners]
+        
+        # 2. 리스트의 모든 항목을 ", "로 연결하여 하나의 문자열로 합칩니다.
+        #    예: "김철수 801010, 이영희 821111"
+        full_customer_name = ", ".join(owner_strings)
+        
+        # 3. 합쳐진 전체 이름을 세션 상태에 저장합니다.
+        st.session_state["customer_name"] = full_customer_name
 
         uploaded_file.seek(0)
         with tempfile.NamedTemporaryFile(delete=False, suffix=".pdf") as tmp_file:

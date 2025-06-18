@@ -38,22 +38,16 @@ def process_pdf(uploaded_file):
 # ------------------------------
 
 def parse_comma_number(text):
-    try:
-        return int(re.sub(r"[^\d]", "", str(text)))
-    except:
-        return 0
+    try: return int(re.sub(r"[^\d]", "", str(text)))
+    except: return 0
 
 # ✅ 콤마 + 만단위 절삭 함수 (100단위 절삭)
 
 def format_with_comma(key):
     raw = st.session_state.get(key, "")
     clean = re.sub(r"[^\d]", "", str(raw))
-    if clean.isdigit():
-        val = int(clean)
-        truncated = (val // 100) * 100
-        st.session_state[key] = f"{truncated:,}"
-    else:
-        st.session_state[key] = ""
+    if clean.isdigit(): st.session_state[key] = f"{int(clean):,}"
+    else: st.session_state[key] = ""
 
 def format_kb_price():
     raw = st.session_state.get("raw_price_input", "")

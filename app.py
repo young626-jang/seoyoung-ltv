@@ -589,3 +589,13 @@ with col2:
     if st.button("🔄 기존 고객 정보 수정", use_container_width=True, type="primary"):
         update_existing_customer()
 
+
+# --- 👇👇👇 이 부분을 추가하세요. 👇👇👇 ---
+st.markdown(
+    """
+    <div style="text-align: center; color: grey; font-size: 0.8em;">
+        <p>Created by 장서영</p>
+    </div>
+    """,
+    unsafe_allow_html=True
+)
